@@ -15,6 +15,10 @@ CREATE TABLE IF NOT EXISTS dmx_channels (
   universe INT NOT NULL DEFAULT 0,
   dmx_address INT NOT NULL,
   channel_group VARCHAR(32) NULL,
+  -- Intensitaetskanal? Nur solche Kanaele werden von Grandmaster und
+  -- Blackout beeinflusst (PROTOKOLL.md 6). Pan/Tilt/Zoom/Control bleiben
+  -- unangetastet, sonst wuerde ein Blackout den Kopf verstellen.
+  is_intensity TINYINT(1) NOT NULL DEFAULT 0,
   sort_order INT NOT NULL DEFAULT 0,
   -- Konstant zu haltender DMX-Wert (0..255) für Fixture-Kanäle wie
   -- Shutter, Fixture-Mode oder Prisma. NULL = normal steuerbar.
@@ -35,6 +39,10 @@ CREATE TABLE IF NOT EXISTS ml_fixtures (
   tilt_fine_channel_id INT UNSIGNED NULL,
   zoom_channel_id INT UNSIGNED NULL,
   dimmer_channel_id INT UNSIGNED NULL,
+  -- Laufrichtung pro Fixture. Stand frueher fest im Servercode (1 - pan)
+  -- und galt damit pauschal fuer jedes Movinglight.
+  pan_invert TINYINT(1) NOT NULL DEFAULT 0,
+  tilt_invert TINYINT(1) NOT NULL DEFAULT 0,
   active TINYINT(1) NOT NULL DEFAULT 1,
   sort_order INT NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
