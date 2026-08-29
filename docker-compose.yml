@@ -39,6 +39,7 @@ services:
         condition: service_healthy
     environment:
       DB_HOST: db
+      DB_PORT: 3306
       DB_USER: gyra
       DB_PASSWORD: gyra
       DB_NAME: lichtsteuerung
@@ -48,6 +49,11 @@ services:
       # Für echte Hardware hier die IP des Nodes eintragen (siehe .env).
       ARTNET_HOST: ${ARTNET_HOST:-artnet-monitor}
       ARTNET_UNIVERSE: ${ARTNET_UNIVERSE:-0}
+      # unicast (an ARTNET_HOST) oder broadcast (an ARTNET_BROADCAST_ADDR).
+      ARTNET_MODE: ${ARTNET_MODE:-unicast}
+      ARTNET_BROADCAST_ADDR: ${ARTNET_BROADCAST_ADDR:-255.255.255.255}
+      ARTNET_SYNC: ${ARTNET_SYNC:-false}
+      ARTNET_DISCOVERY: ${ARTNET_DISCOVERY:-true}
       DEBUG_WS_IN: ${DEBUG_WS_IN:-false}
     ports:
       - "8080:8080"
