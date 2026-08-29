@@ -75,6 +75,52 @@ ARTNET_HOST=192.168.178.40     # echte Hardware im Netz
 
 Danach `docker compose up -d backend`.
 
+### Unicast oder Broadcast
+
+Ebenfalls in der `.env`:
+
+```ini
+ARTNET_MODE=unicast            # Default: gezielt an ARTNET_HOST
+ARTNET_MODE=broadcast          # an alle Nodes im Netz
+ARTNET_BROADCAST_ADDR=192.168.178.255   # nur bei broadcast
+```
+
+Im Broadcast-Modus wird `ARTNET_HOST` ignoriert; die Pakete gehen an
+`ARTNET_BROADCAST_ADDR` (Default `255.255.255.255`). Zuverlässiger als das
+globale Broadcast ist die Subnetz-Broadcast-Adresse des Lichtnetzes, nach
+Art-Net-Norm also z.B. `2.255.255.255` bzw. `192.168.178.255` im Heimnetz.
+
+Broadcast lohnt sich, wenn mehrere Nodes dieselben Universen bekommen sollen
+oder die IP eines Interfaces unbekannt ist. Unicast erzeugt weniger Netzlast
+und ist deshalb der Default.
+
+> Im Docker-Setup bleibt ein Broadcast im Bridge-Netz von Compose – der
+> Monitor-Container empfängt ihn, echte Hardware im LAN nicht. Dafür das
+> Backend direkt auf dem Host betreiben (siehe `ops/`) oder dem Container
+> `network_mode: host` geben.
+
+### Art-Net-Tool auf dem Host (Artnetominator, MA3 onPC, …)
+
+Ein Tool, das auf dem Windows-Host lauscht, erreicht man aus dem Container
+**nicht** über `127.0.0.1` – das ist die Loopback des Containers, nicht die
+des Hosts. Auch Broadcast hilft nicht: unter Docker Desktop (WSL2) endet er
+in der VM. Stattdessen gezielt an den Host senden:
+
+```ini
+ARTNET_MODE=unicast
+ARTNET_HOST=host.docker.internal
+```
+
+Docker Desktop stellt diese Pakete auf dem Host so zu, dass sie als von
+`127.0.0.1` kommend ankommen – ein auf Loopback eingestelltes Tool sieht sie
+also. Lauschen mehrere Programme auf 6454, gewinnt der spezifischere Bind:
+ein Tool auf `127.0.0.1` bekommt das Paket vor einem auf `0.0.0.0`.
+
+Solange `ARTNET_HOST` auf den Host zeigt, bekommt der `artnet-monitor`-
+Container nichts mehr – für ihn wieder `ARTNET_HOST=artnet-monitor` setzen.
+
+Nach jeder Änderung `docker compose up -d backend`.
+
 ### Zugriff vom Tablet
 
 Das Frontend ermittelt den WebSocket-Host automatisch aus der

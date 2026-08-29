@@ -1,6 +1,9 @@
 # Atrium Light – Analyse Ist-Stand & Ziele
 
-Stand: 2026-08-29 · Basis: `frontend/index.php` (1917 Z.), `backend/server.js` (1077 Z.), `database/schema.sql`
+Stand: 2026-08-29 · Basis: `frontend/index.php` (1940 Z.), `backend/server.js` (1111 Z.), `database/schema.sql`
+
+Die Befunde in Abschnitt 2 sind am 2026-08-29 einzeln gegen den aktuellen
+Code geprüft und tragen jeweils einen Status.
 
 ---
 
@@ -8,7 +11,7 @@ Stand: 2026-08-29 · Basis: `frontend/index.php` (1917 Z.), `backend/server.js` 
 
 ```
 Tablet/Browser ──ws://<server>:8080──> Node "lightserver" ──Art-Net/UDP:6454──> DMX-Node ──> Fixtures
-   (index.php)        JSON-Messages       40 Hz Tick-Loop         Unicast
+   (index.php)        JSON-Messages       40 Hz Tick-Loop    Unicast/Broadcast
                                               │
                                               └── MySQL/MariaDB "lichtsteuerung"
                                                   (Patch, Presets, ML-Positionen, Settings)
@@ -36,7 +39,8 @@ Tablet/Browser ──ws://<server>:8080──> Node "lightserver" ──Art-Net/
 1. `updateMlState(dt)` – Positions-Fade, Joystick-Integration (Velocity → Position)
 2. `mixSceneChannelsHTP()` – pro Kanal `max(alle Preset-Fader × preset-Wert, Programmer-Wert)`
 3. `buildDmxUniverses()` – Szenenkanäle als 8 bit; danach ML-Kanäle **überschreibend**: Pan/Tilt 16 bit (Pan invertiert `1-pan`), Zoom 8 bit, Dimmer 8 bit HTP mit Szene; zuletzt IDs 33–39 hart auf 255
-4. `sendDmx()` – ein ArtDMX-Paket je Universe, Unicast an `ARTNET_HOST`
+4. `sendDmx()` – ein ArtDMX-Paket je Universe, je nach `ARTNET_MODE` Unicast
+   an `ARTNET_HOST` oder Broadcast an `ARTNET_BROADCAST_ADDR`
 
 ### WebSocket-Protokoll
 
@@ -56,16 +60,17 @@ Tablet/Browser ──ws://<server>:8080──> Node "lightserver" ──Art-Net/
 
 ### A. Funktionale Fehler
 
-| # | Befund | Ort |
-|---|---|---|
-| A1 | **ML-Dimmer wirkt nicht direkt.** Die Glättung `mlState.dimmer += (mlDimmerTarget - …)` steht **innerhalb** von `if (mlPositionFade)`. `mlPositionFade` wird aber nirgends gesetzt (Recall setzt hart und nullt es). ⇒ `mlState.dimmer` bleibt dauerhaft 0; der Dimmer-Fader schickt Werte, die nie ankommen. Sichtbar wird der ML nur über die HTP-Mischung mit Szenenwerten. | `server.js:288-300` |
-| A2 | **Positions-Fades sind tot.** `fade_time_sec` wird gespeichert und geloggt, aber Recall setzt hart (`mlPositionFade = null`). Der gesamte Fade-Code läuft nie. | `server.js:810-820` |
-| A3 | **Hart kodierte Kanal-IDs 33–39 auf 255.** Fixture-Konstanten (vermutlich Farbrad/Gobo/Shutter/Prisma des ML) im Code statt in der DB. Bricht bei jeder Patch-Änderung; blockiert diese Kanäle im Programmer. | `server.js:473-489` |
-| A4 | **Zoom-Fader nach Recall inkonsistent.** `recallPositionSlot()` synchronisiert nicht, `syncZoomDimmerFadersFromState()` prüft `window.dimmerFaderState` (immer undefined bei `let`) ⇒ Dimmer-Fader springt nicht mit. | `index.php:1878` |
-| A5 | **Pad zeigt Auslenkung, nicht Position.** Der Punkt visualisiert die Joystick-Deflection; die echte Pan/Tilt-Position des ML ist im UI nirgends sichtbar und wird vom Server nie zurückgemeldet. | Konzept |
-| A6 | **Kein State-Broadcast.** Preset-Fader, Positions-Recalls u. a. gehen nur an den auslösenden Client. Zwei Tablets laufen sofort auseinander. | `server.js` |
-| A7 | `loadPresets()` + `loadPadSettings()` bei **jedem** Connect; Reconnect-Storm = DB-Last. | `server.js:552` |
-| A8 | Nur Slot-Suche auf `page = 1`; `light_presets.page` ist im Schema, im UI aber ohne Funktion. | `index.php:1729` |
+| # | Befund | Ort | Status |
+|---|---|---|---|
+| A1 | **ML-Dimmer wirkte gar nicht.** Die Glättung stand **innerhalb** von `if (mlPositionFade)`, und `mlPositionFade` wird nirgends je auf ein Objekt gesetzt ⇒ `mlState.dimmer` bekam an keiner Stelle einen Wert und blieb dauerhaft 0. | `server.js:311-353` | **erledigt 2026-08-29** – Glättung als eigener Schritt 3 hinter den Fade-/Joystick-Block gezogen, `DIMMER_SMOOTHING_SEC` zu den übrigen ML-Parametern hochgezogen. Ende-zu-Ende verifiziert: `dimmer` 0.5/0.0/1.0 → DMX-Kanal 24 = 128/0/255 |
+| A2 | **Positions-Fades waren tot.** Beide Recall-Handler lasen `fade_time_sec` in eine nie verwendete Variable `fade` und setzten hart. | `server.js:839/846-848`, `950/955-957` | **erledigt 2026-08-29** – siehe B1.1 in Abschnitt 5 |
+| A3 | Hart kodierte Kanal-IDs 33–39 auf 255. | `server.js` | **erledigt** – ersetzt durch `dmx_channels.fixed_value`; solche Kanäle werden im Programmer ausgeblendet (`index.php:1726`) |
+| A4 | **Dimmer-Fader springt nach Recall nicht mit.** `window.dimmerFaderState` ist wegen `let` immer `undefined` ⇒ der Block läuft nie. | `index.php:545, 1914` | **entfällt** – Frontend wird neu gebaut |
+| A5 | **Pad zeigt Auslenkung, nicht Position.** Der Punkt visualisiert die Joystick-Deflection; die echte Pan/Tilt-Position des ML ist im UI nirgends sichtbar und wird vom Server nie zurückgemeldet. | Konzept | **offen** |
+| A6 | **Kein State-Broadcast.** `broadcast()` ist implementiert, wird aber nur für `pad_sensitivity` benutzt. Preset-Fader, Positions-Recalls usw. gehen nur an den auslösenden Client. Zwei Tablets laufen sofort auseinander. | `server.js:597, 659` | **offen** |
+| A7 | `loadPresets()` + `loadPadSettings()` bei **jedem** Connect; Reconnect-Storm = DB-Last. | `server.js:584-589` | **offen** |
+| A8 | Preset-Seiten unbenutzbar: das Frontend sendet `page` fest als `1`. Backend und Schema können mehrere Seiten. | `index.php:1798` | **offen** |
+| A9 | *(Frontend-Ursache entfällt mit dem Neubau; die Protokoll-Konsequenz steht als B2.8 in Abschnitt 5.)* **Jeder offene Browser-Tab sendet permanent mit 20 Hz.** `gamepadLoop()` läuft über `requestAnimationFrame` bedingungslos — ohne Gamepad, ohne Pad-Berührung — und ruft am Ende `sendStateToServer()`. Der Tab drückt damit dauerhaft seinen lokalen Zoom-/Dimmer-Stand auf den Server. Folgen: (a) zusammen mit A6 überschreiben sich zwei Tablets 20-mal pro Sekunde gegenseitig, statt nur auseinanderzulaufen; (b) kein anderer Client und kein Testskript kann `mlState` bewegen, solange irgendein Tab offen ist; (c) unnötige Dauerlast auf WS und CPU. Gemessen: ein offener Tab hat Zoom dauerhaft auf 128 (=0.5) und Dimmer auf 0 festgenagelt. | `index.php:1223, 1227` | **offen** |
 
 ### B. Bedienbarkeit
 
@@ -81,18 +86,39 @@ Tablet/Browser ──ws://<server>:8080──> Node "lightserver" ──Art-Net/
 
 ### C. Technik / Betrieb
 
-- Kein Git-Repository, keine Tests, kein Lint, keine CI.
+- Keine Tests, kein Lint, keine CI. (Git-Repo existiert inzwischen.)
 - Vier nahezu identische Fader-Implementierungen (Preset, Programmer, Sensitivity, Value) — ~600 Zeilen Duplikat.
 - `ws://` ohne TLS, **keinerlei Authentifizierung** — wer im Netz ist, steuert das Licht.
 - WS-Port im Frontend hart auf 8080.
-- Art-Net nur Unicast an eine IP, kein Broadcast/mehrere Nodes, keine ArtPoll/Sync.
-- `DEBUG_WS_IN = true` in Produktion ⇒ jede eingehende Nachricht wird geloggt (bei 20 Hz Pad-Traffic).
+- Art-Net: Unicast/Broadcast ist jetzt per `ARTNET_MODE` umschaltbar. Weiterhin
+  offen: kein ArtPoll/ArtPollReply (der Server ist für Nodes nicht auffindbar),
+  kein ArtSync, und das Sequence-Feld bleibt konstant 0 — laut Spec zulässig
+  („sequencing disabled"), aber ohne Schutz gegen vertauschte Pakete.
+- Debug-Logging läuft jetzt über ENV-Flags. Im Frontend stehen aber noch
+  vergessene `console.log`-Aufrufe im 20-Hz-Pfad: `'FaderMove'` und `travel`
+  bei jeder Fader-Synchronisation (`index.php:1900, 1909`), dazu
+  `'recalled'+zoom` (`index.php:627`).
 - Sender läuft dauerhaft mit 40 Hz, auch ohne Änderung (bei DMX korrekt, aber ohne Idle-Drosselung).
 - Alte Legacy-Message-Typen parallel gepflegt.
+
+### D. Art-Net-Ausgabe & Testumgebung
+
+Befunde aus der Inbetriebnahme mit MA3 / Artnetominator am 2026-08-29.
+
+| # | Befund | Status |
+|---|---|---|
+| D1 | **Aus dem Container erreicht Broadcast den Host nie.** Unter Docker Desktop (WSL2) endet ein Broadcast im Bridge-Netz der VM; auch das Bridge-Gateway `172.19.0.1` liegt in der VM, nicht auf Windows. Gemessen: Pakete an `172.19.0.1` kommen nicht an, an `host.docker.internal` (192.168.65.254) schon — und zwar mit Quelladresse `127.0.0.1`. Für Tools auf dem Host gilt deshalb `ARTNET_MODE=unicast` + `ARTNET_HOST=host.docker.internal`. | dokumentiert im README, **Workaround** |
+| D2 | **Echte Art-Net-Hardware im LAN ist aus dem Docker-Setup nicht bedienbar.** | **gelöst 2026-08-29** – über den nativen Betrieb (B4.1, `ops/start-native.sh`). Der Docker-Weg bleibt unverändert nur für den Monitor tauglich. |
+| D3 | **Backend konnte nicht nativ gegen die Docker-DB laufen.** `mysql.createPool()` übergab keinen `port`, nutzte also immer 3306; die Testdatenbank hängt auf 3307. | **erledigt 2026-08-29** – `DB_PORT` aus der ENV (Default 3306), in `backend/.env(.example)` und `docker-compose.yml` ergänzt. Verifiziert: Verbindung über 3307 liefert 37 Kanäle, Gegenprobe auf 3306 `ECONNREFUSED`. Für den nativen Betrieb ist vorher `npm install` in `backend/` nötig — der dortige `node_modules`-Ordner ist nur ein leerer Mountpunkt des Compose-Volumes. |
+| D4 | **Bei Unicast bekommt nur *ein* Programm auf dem Host die Daten.** Lauschen mehrere Tools auf UDP 6454, gewinnt der spezifischere Bind: gemessen hat ein Socket auf `127.0.0.1` das Paket erhalten, der auf `0.0.0.0` nicht. Artnetominator (Loopback) schneidet damit MA3 (`0.0.0.0`) ab. Broadcast würde an alle zustellen — braucht aber D2. | **verstanden**, kein Codefehler |
+| D5 | **Kanalbelegung des Hero Wash 300 TW war geraten** — und zwar falsch an entscheidender Stelle: rel. 6 ist Zoom (nicht Dimmer), rel. 7 ist der Dimmer (war als „Dimmer Fine" fest auf 0 genagelt), rel. 9-14 sind die sechs Kalt-/Warmweiss-Segmente (das eigentliche Leuchtmittel, standen auf 0). Der Dimmer konnte deshalb gar nicht wirken. | **erledigt 2026-08-29** – Belegung aus dem Handbuch übernommen: Zoom→24, Dimmer→25, Stroboskop 26 fest 255, Segmente 27-32 fest 255, Farbtemperatur 33 fest 128, 34-37 fest 0. `seed.test.sql` korrigiert **und** per `UPDATE` in die laufende DB gezogen (ohne `down -v`, Presets blieben erhalten). |
+| D6 | **`seed.test.sql` greift nur bei leerer DB.** Änderungen am Test-Patch erfordern `docker compose down -v` — dabei gehen lokal angelegte Presets und ML-Positionen verloren. Ein Migrations-/Reset-Skript fehlt. | **teilweise** – der MA3-Patch ist inzwischen geladen (37 Kanäle, verifiziert), das fehlende Reset-Skript bleibt offen |
+| D7 | **Keine `.gitignore`.** | **erledigt 2026-08-29** – siehe B4.3 in Abschnitt 5. |
 
 ---
 
 ## 3. Ziele für die Überarbeitung
+
 
 ### Priorität 1 – Korrektheit & Live-Sicherheit
 1. A1 fixen: Dimmer-Glättung aus dem Fade-Block herausziehen.
@@ -134,15 +160,86 @@ Dabei bereits erledigt:
 - Debug-Flags über ENV statt Konstanten.
 - WS-Host im Frontend konfigurierbar (`?ws=`, `LIGHT_WS_HOST`, sonst Browser-Host).
 - Konstant gehaltene Kanäle werden im Programmer ausgeblendet.
+- Art-Net Unicast/Broadcast per `ARTNET_MODE` umschaltbar (`ARTNET_BROADCAST_ADDR`,
+  `ARTNET_PORT`); Ausgabeweg beim Start im Log sichtbar.
+- `seed.test.sql` deckungsgleich mit dem MA3-Testpatch: 6 Dimmer (1–6),
+  4x RGB (7–18), Hero Wash 300 TW (19–37), Kanal-ID = DMX-Adresse.
+- Signalweg bis in MA3 verifiziert (Art-Net-Input empfängt Universe 0).
 
 **Offen / später nötig:**
 - **Echter Patch**: der Produktiv-Dump ist nicht beschaffbar. Der Patch wird
   daher später direkt in der Anwendung neu angelegt → spricht für Ziel 12
   (Patch-Editor im Frontend), sonst bleibt es Handarbeit in SQL.
-- **Kanalbelegung Hero Spot 300 TW**: in `seed.test.sql` geraten. Beim echten
-  Patchen anhand des Handbuchs korrigieren.
-- Art-Net-Node-IP und Universe-Zuordnung für den Realbetrieb.
+- **Kanalbelegung Hero Wash 300 TW**: in `seed.test.sql` geraten (D5).
+- Art-Net-Node-IP und Universe-Zuordnung für den Realbetrieb (D2).
+- `DB_PORT` aus der ENV, damit das Backend auch nativ gegen die Docker-DB
+  laufen kann (D3).
 - Zielgerät des Frontends (Tabletmodell/Größe) und ob das Gamepad im Einsatz ist.
 - Automatisierte Smoke-Tests gegen das WS-Protokoll (Nachricht rein → erwartete
   DMX-Bytes raus) – der Monitor liefert dafür bereits eine JSON-API unter
   `/api/state`.
+
+---
+
+## 5. Backend-Arbeitsliste
+
+Das Frontend wird komplett neu gebaut — Frontend-Befunde (A4, A8-Client-Teil,
+A9-Ursache, Abschnitt B) werden deshalb nicht mehr einzeln gefixt. Diese Liste
+enthält nur, was am **Backend** zu tun ist. Reihenfolge = Vorschlag.
+
+### B1 · Korrektheit
+
+| # | Aufgabe | Ort |
+|---|---|---|
+| B1.1 | ~~Positions-Fades aktivieren (A2).~~ **erledigt 2026-08-29** – gemeinsamer Helfer `startPositionFade()` für beide Recall-Handler; bei `fade <= 0` weiterhin hartes Setzen. Der Interpolationscode in `updateMlState()` war die ganze Zeit korrekt, wurde nur nie ausgelöst. Die Antwort schickt jetzt das **Ziel** statt des Startwerts, dazu `fade_time_sec`. Verifiziert: 3-s-Fade von pan 0.9/tilt 0.1/zoom 0.9 nach 0.2/0.8/0.3 läuft linear, `fading` kippt true→false, Endwert exakt getroffen. | `server.js:640-665, 1051, 1163` |
+| B1.2 | ~~Pan-Invertierung hart verdrahtet.~~ **erledigt 2026-08-29** – neue Spalten `ml_fixtures.pan_invert` / `tilt_invert` (Migration `database/migrations/2026-08-29-pan-tilt-invert.sql`, idempotent; auch in `schema.sql` und `seed.test.sql`). Die Migration setzt `pan_invert = 1` für bestehende Fixtures, damit sich die Laufrichtung **nicht** ändert. Am DMX in beide Richtungen verifiziert: mit `pan_invert=1` ergibt Eingabe 0.25 wie bisher 16-bit 49151 (norm 0.750); nach Tausch der Flags 16384 (norm 0.250) bei Pan und 0.750 bei Tilt. | `server.js:605-609` |
+
+> **Nebenwirkung von B1.1, bewusst so:** Ein laufender Fade wird jetzt nur
+> noch bei echter Bewegungsabsicht abgebrochen (Joystick über der Deadzone
+> oder absolute Pan/Tilt-Vorgabe). Vorher brach *jede* `ml_live`-Nachricht ab —
+> und weil ein ruhender v1-Tab mit 20 Hz `pan_speed: 0` sendet (A9), wäre kein
+> Fade je durchgelaufen. Verifiziert: ruhender Client lässt den Fade laufen,
+> ausgelenkter Joystick bricht ihn ab.
+>
+> Einschränkung mit v1-Clients: der Zoom-Anteil des Fades kämpft weiterhin
+> gegen das `zoom`-Feld im 20-Hz-`ml_live`. Löst sich mit v2 (`ml.zoom` nur
+> bei Änderung).
+
+### B2 · Protokoll — Voraussetzung für das neue Frontend
+
+> **Entwurf liegt vor: `PROTOKOLL.md` (v2).** Deckt B2.1-B2.8 ab und benennt
+> vier offene Entscheidungen. Noch nicht implementiert.
+
+Diese Punkte zuerst festlegen, sonst baut das neue Frontend gegen ein Protokoll,
+das gleich wieder geändert wird.
+
+| # | Aufgabe | Ort |
+|---|---|---|
+| B2.1 | ~~State-Broadcast (A6).~~ **erledigt 2026-08-29** – `broadcast()` wurde bisher nur für `pad_sensitivity` benutzt. Neu: `buildStateMessage()` nach `PROTOKOLL.md` §4.3 mit `seq`, `origin`, `ml`, `master`, `preset_levels`, `programmer`, `pad_sensitivity`; jede Verbindung bekommt eine `client_id` als `origin`. Verifiziert mit zwei Clients: A setzt Preset 2 auf 0.7 → B sieht `preset_levels: {"2":0.7}` mit `origin`. | `server.js:640-720` |
+| B2.2 | ~~Periodischer `state_update`.~~ **erledigt 2026-08-29** – eigener Takt mit `STATE_HZ` (Default 10), getrennt vom 40-Hz-DMX-Takt. Sendet nur bei Änderung, mindestens aber alle `STATE_KEEPALIVE_MS` (Default 1000) als Lebenszeichen. Isoliert gemessen: Leerlauf 3 Nachrichten in 3 s, Einschwingen des Dimmers 8, danach wieder 3. **Dabei gefunden:** die Dimmer-Glättung erreichte ihr Ziel asymptotisch nie exakt (`0.00023539…`), wodurch jeder Tick als Änderung galt und der Leerlauf nie still wurde — jetzt Snap auf den Zielwert unterhalb `DIMMER_EPSILON` (ein halber DMX-Schritt). **Einschränkung:** solange v1-Clients laufen, hebelt ein einziger offener Tab die Drosselung aus, weil er mit 20 Hz `ml_live` sendet (A9). Greift im Alltag erst mit v2-Clients, die nur bei Änderung senden. | `server.js:353-360, 1180` |
+| B2.3 | ~~`ml_positions` werden nie ausgeliefert.~~ **erledigt 2026-08-29** – `loadPositions()` + `buildPositionList()` ergänzt, Slot-Anzahl über `POSITION_SLOT_COUNT` (Default 9). Alle Slots gehen in `init_state`, auch leere (`occupied: false`), und werden nach jedem Store aufgefrischt. Verifiziert: ein neu verbundener Client sieht Name und Belegung. **Dabei gefunden und mitgefixt:** `handleMlPosStore()` hatte `const fade = 1.0` fest verdrahtet und verwarf die vom Client geschickte `fade_time_sec` — das hätte B1.1 sofort wieder ausgehebelt. Kurios: der Legacy-Handler machte es richtig. Rückfallwert jetzt `DEFAULT_POSITION_FADE_SEC` (ENV `POSITION_FADE_SEC`). | `server.js:265-290, 844` |
+| B2.4 | ~~Blackout und Grandmaster fehlen.~~ **erledigt 2026-08-29** – neue Spalte `dmx_channels.is_intensity` (Migration `database/migrations/2026-08-29-is-intensity.sql`, idempotent; auch in `schema.sql` und `seed.test.sql`). `applyMaster()` wirkt am Ende der HTP-Mischkette und auf den ML-Dimmer, ausschliesslich auf Intensitäten. Neue Nachrichten `master.grandmaster` / `master.blackout` — direkt in v2-Benennung, da ohne v1-Vorgänger. Am DMX verifiziert: GM 0.5 halbiert Dimmer 1-6 und Wash-Dimmer 25 auf 128, Blackout zieht sie auf 0, **Pan 19 / Tilt 21 bleiben bei 128 und Segment 27 bei 255**. | `server.js:286-300, 520` |
+| B2.5 | **Kein „Clear Programmer“**. `programmerValues` wird nie geleert; ein Wert bleibt bis zum Neustart stehen. (Dass Werte einen Client-Disconnect überleben, ist richtig — es fehlt nur der bewusste Weg zurück auf 0.) | `server.js:100, 677` |
+| B2.6 | **Legacy-Message-Typen entfernen**: `save_ml_position` / `recall_ml_position` duplizieren `ml_pos_store` / `ml_pos_recall` fast zeilengleich (~110 Zeilen). Mit dem neuen Frontend gibt es keinen Grund mehr dafür. | `server.js:891-990` |
+| B2.7 | **Preset-Seiten** (A8) im Protokoll sauber führen. Backend und Schema können `page` bereits; nur das alte Frontend hat `1` fest gesendet. | `server.js:716` |
+| B2.8 | **Führungslogik festlegen.** Heute gilt „last writer wins“ bei 20 Hz Vollzustand je Client (Ursache von A9). Für den Neubau besser: Client schickt Events/Deltas, der Server hält den Zustand — sonst überschreiben sich zwei Tablets weiterhin gegenseitig. | Protokoll-Entwurf |
+
+### B3 · Robustheit & Betrieb
+
+| # | Aufgabe | Ort |
+|---|---|---|
+| B3.1 | ~~`loadPresets()` + `loadPadSettings()` bei jedem Connect.~~ **erledigt 2026-08-29** – `sendInitState()` liefert aus dem Cache, ohne DB-Zugriff. Konfigurationsänderungen kommen über `reloadAll()` (B3.3) herein; damit entfällt der Grund für das Laden pro Verbindung. Gemessen: 5 Reconnects erzeugen 0 zusätzliche DB-Ladevorgänge (vorher 2 je Verbindung). | `server.js:790` |
+| B3.2 | ~~Kein WS-Heartbeat.~~ **erledigt 2026-08-29** – `ping`/`pong` mit `isAlive` je Verbindung, Takt über `WS_PING_INTERVAL_MS` (Default 15000), Timer wird bei `wss.close` aufgeräumt. Verifiziert mit zwei Clients: der aktive bekommt Pings und überlebt, ein per `socket.pause()` verstummter (TCP offen, keine Antwort — wie ein eingeschlafenes Tablet) wird erkannt und beendet: `Keine Antwort von cf0404, Verbindung wird beendet.` Ein hart abgerissener Socket wird ohnehin schon per TCP-RST erkannt. | `server.js:715-735` |
+| B3.3 | ~~`loadPatch()` läuft nur beim Start.~~ **erledigt 2026-08-29** – `reloadAll()` lädt Patch, Presets, Positionen und Settings neu; ausgelöst per **SIGHUP** (`docker compose kill -s HUP backend`) oder per `system.reload` über WebSocket (PROTOKOLL.md §3.7). Fehlschlag lässt den alten Stand aktiv, Mehrfachaufrufe sind über `reloadInFlight` abgesichert. **Dabei mitgefixt:** `loadPatch()` hatte ein `await` zwischen dem Zuweisen von `dmxChannels` und `mlFixtures` — beim Start harmlos, beim Reload zur Laufzeit hätte der 40-Hz-Tick einen halb getauschten Patch gesehen. Jetzt werden beide Abfragen zuerst gemacht und dann in einem Rutsch umgeschaltet. Verifiziert ohne Neustart (Prozessstarts 10 → 10): Kanalname in der DB geändert, SIGHUP, neuer Name im laufenden Prozess. | `server.js:640-670, 145` |
+| B3.4 | **Keine Authentifizierung, kein TLS.** | **verworfen 2026-08-29** – bewusste Entscheidung, Betriebsnetz gilt als vertrauenswürdig (`PROTOKOLL.md` §10.4). Gilt nur, solange das Pult nicht aus einem fremden Netz erreichbar ist. |
+| B3.5 | ~~Art-Net-Feinheiten.~~ **erledigt 2026-08-29** – (a) **Sequence** je Universe 1..255, die 0 wird übersprungen (bedeutet laut Spec „Sequencing aus"); über 318 Pakete verifiziert: lückenlos, Überlauf `255 → 1`, Wert 0 kam nie vor. (b) **ArtPoll/ArtPollReply**: der Socket bindet jetzt auf `ARTNET_PORT` statt auf einen zufälligen Port und antwortet je bespieltem Universe mit einer 239-Byte-Reply (Style 1 = Controller, PortType 0x80, echte IP und MAC). Ist der Port belegt, wird auf einen freien ausgewichen — Senden läuft weiter, nur die Erkennung fällt weg. (c) **ArtSync** opt-in über `ARTNET_SYNC` (Default aus), nach den ArtDMX-Paketen eines Ticks; gemessen 59 ArtDMX zu 59 ArtSync in 1,5 s bei 40 Hz. | `server.js:430-560` |
+| B3.6 | **Kein Idle-Sparbetrieb**: 40 Hz Dauersenden auch ohne Änderung. | **verworfen 2026-08-29** – bewusst so; kontinuierliches Senden ist bei DMX das erwartete Verhalten. |
+
+### B4 · Umgebung & Repo
+
+| # | Aufgabe | Bezug |
+|---|---|---|
+| B4.1 | ~~Native Betriebsart für echte Art-Net-Hardware.~~ **erledigt 2026-08-29** – `npm install` in `backend/` ausgeführt (14 Pakete, `package-lock.json` neu), Startskript `ops/start-native.sh`. Läuft gegen die Docker-DB über `DB_PORT=3307` (D3). **Zwei Portkonflikte auf diesem Rechner:** (a) grandMA3 onPC belegt TCP 8080 mit seinem Web-Remote → nativer WS-Port ist 8090, `LIGHT_WS_PORT` in der `.env` entsprechend gesetzt. (b) Der Art-Net-Socket band 6454 für ArtPoll und hat MA3 den Port **tatsächlich weggenommen** — gemessen: bei mehreren Sockets auf demselben UDP-Port bekommt nur einer die Pakete, MA3 verschwand aus der Bindungsliste und war sofort zurück, als der Prozess endete. Dafür neu: `ARTNET_DISCOVERY=false` bindet einen freien Port statt 6454. | D2 |
+| B4.2 | Reset-/Migrationsskript für die Testdatenbank statt `docker compose down -v`. **teilweise** – `database/migrations/` existiert jetzt mit der ersten Migration (`is-intensity`), idempotent und von Hand einspielbar. Es fehlt weiterhin ein Runner, der offene Migrationen erkennt und der Reihe nach anwendet. | D6 |
+| B4.3 | ~~`.gitignore` anlegen; `.env` aus der Versionierung nehmen.~~ **erledigt 2026-08-29** – `.gitignore` deckt `node_modules/`, beide `.env` (mit Ausnahmen für die `.env.example`), Logs und Editor-/OS-Dateien ab. `.env` und `backend/.env` waren bereits getrackt und wurden per `git rm --cached` aus dem Index genommen; die Dateien liegen unverändert auf der Platte. **Rest-Risiko:** beide stehen weiterhin in der Historie — aktuell unkritisch (`DB_PASSWORD=CHANGE_ME`), aber sobald dort ein echtes Passwort eingecheckt würde, hilft nur History-Rewriting. | D7 |
+| B4.4 | Tests, Lint, CI. Smoke-Test „WS-Nachricht rein → erwartete DMX-Bytes raus“ ist über `/api/state` des Monitors gut machbar. | C |
