@@ -1,0 +1,16 @@
+{
+  "name": "atrium-light-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Atrium Light WebSocket / Art-Net server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "mysql2": "^3.15.3",
+    "ws": "^8.18.3"
+  }
+}
