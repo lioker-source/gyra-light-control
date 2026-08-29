@@ -174,6 +174,7 @@ let lastStateSentTs = 0;
 // Joystick-Geschwindigkeiten (−1..+1)
 let mlPanSpeed  = 0;  // −1..+1
 let mlTiltSpeed = 0;  // −1..+1
+let mlMoveLastTs = 0; // Zeitpunkt der letzten Geschwindigkeitsvorgabe
 
 // Pad-Sensitivität (Frontend-Skala 0.1..1.0, beeinflusst die vom Client geschickten Speeds)
 let padSensitivity = DEFAULT_PAD_SENSITIVITY;
@@ -182,6 +183,11 @@ let padSensitivity = DEFAULT_PAD_SENSITIVITY;
 const JOYSTICK_FULL_RANGE_SEC = Number(process.env.JOY_FULL_RANGE_SEC || 2.0);
 // z.B. 2.0 ⇒ bei Vollauslenkung braucht er ca. 2s für 0→1
 const JOYSTICK_DEADZONE = 0.05;
+
+// Totmann-Schalter fuer ml.move (PROTOKOLL.md §3.2). Bleibt eine gesetzte
+// Geschwindigkeit ohne Auffrischung, wird sie auf 0 gezogen - sonst faehrt
+// der Kopf weiter, wenn ein Tablet mitten in der Bewegung abstuerzt.
+const ML_MOVE_TIMEOUT_MS = Number(process.env.ML_MOVE_TIMEOUT_MS || 400);
 
 // Zeitkonstante der Dimmer-Glättung (Sekunden bis nahe am Zielwert).
 const DIMMER_SMOOTHING_SEC = 0.12;
@@ -455,7 +461,16 @@ function updateMlState(dt) {
     }
   }
 
-  // 2) Joystick-Steuerung (relativ), wenn kein aktiver Fade
+  // 2) Totmann: veraltete Geschwindigkeiten verwerfen, damit der Kopf
+  //    nicht weiterfaehrt, wenn der Client verstummt (PROTOKOLL.md §3.2).
+  if ((mlPanSpeed !== 0 || mlTiltSpeed !== 0) &&
+      Date.now() - mlMoveLastTs > ML_MOVE_TIMEOUT_MS) {
+    mlPanSpeed = 0;
+    mlTiltSpeed = 0;
+    console.warn('[ML] Keine Bewegungsdaten mehr - Geschwindigkeit auf 0 gesetzt.');
+  }
+
+  // 3) Joystick-Steuerung (relativ), wenn kein aktiver Fade
   if (!mlPositionFade) {
     // Pan
     if (Math.abs(mlPanSpeed) > JOYSTICK_DEADZONE) {
@@ -470,7 +485,7 @@ function updateMlState(dt) {
     }
   }
 
-  // 3) Dimmer weich zum Zielwert fahren.
+  // 4) Dimmer weich zum Zielwert fahren.
   //    Muss unabhängig vom Positions-Fade laufen: früher stand das im
   //    if (mlPositionFade)-Block und lief damit nie, weil mlPositionFade
   //    nirgends gesetzt wird. mlState.dimmer blieb dauerhaft 0.
@@ -990,6 +1005,25 @@ async function reloadAll(reason) {
 }
 
 /**
+ * Joystick-Geschwindigkeit setzen (ml.move).
+ * Bricht eine laufende Positionsfahrt nur bei echter Auslenkung ab: ein
+ * ruhender Client sendet dauerhaft 0 und darf den Fade nicht killen.
+ */
+function applyMlMove(panSpeed, tiltSpeed) {
+  const p = typeof panSpeed  === 'number' ? clamp(panSpeed,  -1, 1) : 0;
+  const t = typeof tiltSpeed === 'number' ? clamp(tiltSpeed, -1, 1) : 0;
+
+  if (mlPositionFade &&
+      (Math.abs(p) > JOYSTICK_DEADZONE || Math.abs(t) > JOYSTICK_DEADZONE)) {
+    mlPositionFade = null;
+  }
+
+  mlPanSpeed = p;
+  mlTiltSpeed = t;
+  mlMoveLastTs = Date.now();
+}
+
+/**
  * Positionsfahrt starten. Bei fade <= 0 wird sofort gesetzt.
  * Der Interpolationscode in updateMlState() war immer vorhanden, wurde
  * aber nie ausgelöst, weil beide Recall-Handler hart gesetzt haben.
@@ -1019,10 +1053,16 @@ function startPositionFade(targetPan, targetTilt, targetZoom, fadeSec) {
  */
 // Nachrichtentypen, die den Serverzustand verändern können.
 const STATE_MUTATING_TYPES = new Set([
-  'ml_live', 'ml_sensitivity', 'preset_fader', 'programmer_channel',
-  'save_preset', 'ml_pos_store', 'ml_pos_recall',
+  // v2
+  'ml.move', 'ml.goto', 'ml.zoom', 'ml.dimmer',
+  'preset.fader', 'preset.save', 'preset.delete',
+  'programmer.channel', 'programmer.clear',
+  'position.store', 'position.recall', 'position.delete',
+  'settings.pad_sensitivity',
   'master.grandmaster', 'master.blackout', 'system.reload',
-  'save_ml_position', 'recall_ml_position'
+  // v1, bis das neue Frontend steht
+  'ml_live', 'ml_sensitivity', 'preset_fader', 'programmer_channel',
+  'save_preset', 'ml_pos_store', 'ml_pos_recall'
 ]);
 
 function markStateDirty(origin = null) {
@@ -1087,50 +1127,40 @@ async function handleClientMessage(ws, msg) {
     console.log('[WS-IN]', msg);
   }
   switch (msg.type) {
-    case 'ml_live': {
-      // { type: 'ml_live', mode, pan_speed, tilt_speed, zoom, dimmer }
-      // Eine laufende Positionsfahrt nur bei echter Bewegungsabsicht
-      // abbrechen. Ein ruhender v1-Client sendet weiterhin mit 20 Hz
-      // pan_speed/tilt_speed = 0 (A9) - das darf den Fade nicht killen.
-      const wantsMove =
-        (typeof msg.pan_speed  === 'number' && Math.abs(msg.pan_speed)  > JOYSTICK_DEADZONE) ||
-        (typeof msg.tilt_speed === 'number' && Math.abs(msg.tilt_speed) > JOYSTICK_DEADZONE) ||
-        (msg.mode !== 'velocity' && (typeof msg.pan === 'number' || typeof msg.tilt === 'number'));
-
-      if (mlPositionFade && wantsMove) {
-        mlPositionFade = null;
-      }
-
-      if (msg.mode === 'velocity') {
-        if (typeof msg.pan_speed === 'number') {
-          // Frontend skaliert bereits mit padSensitivity,
-          // hier trotzdem clampen:
-          mlPanSpeed = clamp(msg.pan_speed, -1, 1);
-        } else {
-          mlPanSpeed = 0;
-        }
-        if (typeof msg.tilt_speed === 'number') {
-          mlTiltSpeed = clamp(msg.tilt_speed, -1, 1);
-        } else {
-          mlTiltSpeed = 0;
-        }
-      } else {
-        if (typeof msg.pan === 'number') {
-          mlState.pan = clamp(msg.pan, 0, 1);
-        }
-        if (typeof msg.tilt === 'number') {
-          mlState.tilt = clamp(msg.tilt, 0, 1);
-        }
-      }
-
-      if (typeof msg.zoom === 'number') {
-        mlState.zoom = clamp(msg.zoom, 0, 1);
-      }
-      if (typeof msg.dimmer === 'number') {
-	    mlDimmerTarget = clamp(msg.dimmer, 0, 1);
-	  }
+    // --- Movinglight (PROTOKOLL.md §3.2) -------------------------------
+    // Der Client schickt Absichten, keine Zustaende. Nur ml.move ist
+    // fortlaufend und faellt deshalb unter den Totmann-Schalter.
+    case 'ml.move':
+      applyMlMove(msg.pan_speed, msg.tilt_speed);
       break;
-    }
+
+    case 'ml.goto':
+      mlPositionFade = null;
+      if (typeof msg.pan  === 'number') mlState.pan  = clamp(msg.pan, 0, 1);
+      if (typeof msg.tilt === 'number') mlState.tilt = clamp(msg.tilt, 0, 1);
+      break;
+
+    case 'ml.zoom':
+      if (typeof msg.value === 'number') mlState.zoom = clamp(msg.value, 0, 1);
+      break;
+
+    case 'ml.dimmer':
+      if (typeof msg.value === 'number') mlDimmerTarget = clamp(msg.value, 0, 1);
+      break;
+
+    // v1-Sammelnachricht. Bleibt, bis das neue Frontend steht, und wird
+    // auf die v2-Befehle abgebildet (PROTOKOLL.md §9).
+    case 'ml_live':
+      if (msg.mode === 'velocity') {
+        applyMlMove(msg.pan_speed, msg.tilt_speed);
+      } else if (typeof msg.pan === 'number' || typeof msg.tilt === 'number') {
+        mlPositionFade = null;
+        if (typeof msg.pan  === 'number') mlState.pan  = clamp(msg.pan, 0, 1);
+        if (typeof msg.tilt === 'number') mlState.tilt = clamp(msg.tilt, 0, 1);
+      }
+      if (typeof msg.zoom   === 'number') mlState.zoom  = clamp(msg.zoom, 0, 1);
+      if (typeof msg.dimmer === 'number') mlDimmerTarget = clamp(msg.dimmer, 0, 1);
+      break;
 
     // Konfiguration neu einlesen (PROTOKOLL.md §3.7).
     case 'system.reload': {
@@ -1164,7 +1194,8 @@ async function handleClientMessage(ws, msg) {
       }
       break;
 
-    case 'ml_sensitivity':
+    case 'settings.pad_sensitivity':
+    case 'ml_sensitivity':                     // v1-Name
       // { type: 'ml_sensitivity', value }
       if (typeof msg.value === 'number') {
         const val = clamp(msg.value, 0.1, 1.0);
@@ -1175,46 +1206,134 @@ async function handleClientMessage(ws, msg) {
       }
       break;
 
-    case 'preset_fader':
-      // { type: 'preset_fader', preset_id, value }
+    // --- Presets (PROTOKOLL.md §3.3) -------------------------------------
+    case 'preset.fader':
+    case 'preset_fader': {                     // v1-Name
       if (msg.preset_id == null) return;
-      presetFaderLevels.set(msg.preset_id, clamp(msg.value ?? 0, 0, 1));
+      // v2 nennt das Feld `level`, v1 `value`.
+      const lvl = typeof msg.level === 'number' ? msg.level : msg.value;
+      presetFaderLevels.set(msg.preset_id, clamp(lvl ?? 0, 0, 1));
+      break;
+    }
+
+    case 'preset.save':
+    case 'save_preset':                        // v1-Name
+      await handleSavePreset(ws, msg);
       break;
 
-    case 'programmer_channel':
-      // { type: 'programmer_channel', channel_id, value }
+    case 'preset.delete':
+      await handlePresetDelete(ws, msg);
+      break;
+
+    // --- Programmer (PROTOKOLL.md §3.4) ----------------------------------
+    case 'programmer.channel':
+    case 'programmer_channel':                 // v1-Name
       if (msg.channel_id == null) return;
       programmerValues.set(msg.channel_id, clamp(msg.value ?? 0, 0, 1));
       break;
 
-    case 'save_preset':
-      // { type: 'save_preset', preset_id|null, name, page, fader_index, channels:[{channel_id,max_value}] }
-      await handleSavePreset(ws, msg);
+    case 'programmer.clear':
+      // Ohne diesen Weg blieb ein einmal gesetzter Wert bis zum Neustart
+      // stehen - es gab schlicht keine Moeglichkeit, auf 0 zurueckzukommen.
+      programmerValues.clear();
+      console.log('[PROGRAMMER] Alle Werte geleert.');
       break;
 
     // Neue Message-Typen für Positions-Buttons
-    case 'ml_pos_store':
-      // { type: 'ml_pos_store', slot, pan, tilt, zoom }
+    // --- ML-Positionen (PROTOKOLL.md §3.5) ------------------------------
+    case 'position.store':
+    case 'ml_pos_store':                       // v1-Name
       await handleMlPosStore(ws, msg);
       break;
 
-    case 'ml_pos_recall':
-      // { type: 'ml_pos_recall', slot }
+    case 'position.recall':
+    case 'ml_pos_recall':                      // v1-Name
       await handleMlPosRecall(ws, msg);
       break;
 
-    // Alte Typen bleiben optional für Kompatibilität:
-    case 'save_ml_position':
-      await handleSaveMlPositionLegacy(ws, msg);
-      break;
-
-    case 'recall_ml_position':
-      await handleRecallMlPositionLegacy(ws, msg);
+    case 'position.delete':
+      await handlePositionDelete(ws, msg);
       break;
 
     default:
       console.warn('[WS] Unbekannter Nachrichtentyp:', msg.type);
   }
+}
+
+/**
+ * Preset loeschen (PROTOKOLL.md §3.3). Die Werte haengen per ON DELETE
+ * CASCADE dran, der Faderstand wird mit entfernt.
+ */
+async function handlePresetDelete(ws, msg) {
+  const presetId = msg.preset_id;
+  if (presetId == null) {
+    ws.send(JSON.stringify({ type: 'error', code: 'bad_request',
+      ref: 'preset.delete', message: 'preset_id fehlt.' }));
+    return;
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [res] = await conn.query('DELETE FROM light_presets WHERE id = ?', [presetId]);
+    if (!res.affectedRows) {
+      ws.send(JSON.stringify({ type: 'error', code: 'not_found',
+        ref: 'preset.delete', message: `Preset ${presetId} existiert nicht.` }));
+      return;
+    }
+    presetFaderLevels.delete(presetId);
+    presets.delete(presetId);
+    console.log(`[PRESET] ${presetId} geloescht.`);
+    broadcastLibrary();
+  } catch (err) {
+    console.error('[PRESET] Fehler beim Loeschen:', err);
+    ws.send(JSON.stringify({ type: 'error', code: 'delete_failed',
+      ref: 'preset.delete', message: 'Preset konnte nicht geloescht werden.' }));
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * ML-Position loeschen (PROTOKOLL.md §3.5).
+ */
+async function handlePositionDelete(ws, msg) {
+  const slot = msg.slot;
+  if (slot == null) {
+    ws.send(JSON.stringify({ type: 'error', code: 'bad_request',
+      ref: 'position.delete', message: 'slot fehlt.' }));
+    return;
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [res] = await conn.query('DELETE FROM ml_positions WHERE button_index = ?', [slot]);
+    if (!res.affectedRows) {
+      ws.send(JSON.stringify({ type: 'error', code: 'not_found',
+        ref: 'position.delete', message: `Slot ${slot} ist nicht belegt.` }));
+      return;
+    }
+    await loadPositions();
+    console.log(`[ML] Position Slot ${slot} geloescht.`);
+    broadcastLibrary();
+  } catch (err) {
+    console.error('[ML] Fehler beim Loeschen der Position:', err);
+    ws.send(JSON.stringify({ type: 'error', code: 'delete_failed',
+      ref: 'position.delete', message: 'Position konnte nicht geloescht werden.' }));
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Presets und Positionen an alle Clients verteilen. Bis das neue Frontend
+ * steht, geht dafuer das vollstaendige init_state raus (PROTOKOLL.md §4.2).
+ */
+function broadcastLibrary() {
+  if (!wss) return;
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) sendInitState(client);
+  }
+  markStateDirty(null);
 }
 
 /* --------------------------------------------------------
@@ -1232,6 +1351,25 @@ async function handleSavePreset(ws, msg) {
     const faderIndex = msg.fader_index || 1;
 
     if (!presetId) {
+      // Belegten Slot nicht stillschweigend ueberschreiben (PROTOKOLL.md §3.3).
+      // Frueher legte der Server einfach an und lief in den Unique-Index
+      // (page, fader_index) - der Client bekam einen nichtssagenden Fehler.
+      const [taken] = await conn.query(
+        'SELECT id, name FROM light_presets WHERE page = ? AND fader_index = ?',
+        [page, faderIndex]
+      );
+      if (taken.length) {
+        await conn.rollback();
+        ws.send(JSON.stringify({
+          type: 'error',
+          code: 'slot_occupied',
+          ref: 'preset.save',
+          message: `Seite ${page}, Fader ${faderIndex} ist bereits mit "${taken[0].name}" belegt.`,
+          preset_id: taken[0].id
+        }));
+        return;
+      }
+
       const [res] = await conn.query(
         'INSERT INTO light_presets (name, page, fader_index, active) VALUES (?, ?, ?, 1)',
         [name, page, faderIndex]
@@ -1268,6 +1406,11 @@ async function handleSavePreset(ws, msg) {
     await conn.commit();
 
     await loadPresets();
+
+    // Alle Clients bekommen die neue Bibliothek, nicht nur der Absender
+    // (PROTOKOLL.md §1, Regel 3). Die Einzelbestaetigung bleibt, bis das
+    // neue Frontend steht.
+    broadcastLibrary();
 
     ws.send(JSON.stringify({ type: 'preset_saved', preset_id: presetId }));
     console.log(`[PRESET] Preset ${presetId} gespeichert (${name})`);
@@ -1329,6 +1472,7 @@ async function handleMlPosStore(ws, msg) {
     // Cache auffrischen, damit init_state und kuenftige Clients
     // den neuen Namen und die Belegung sehen.
     await loadPositions();
+    broadcastLibrary();
 
     ws.send(JSON.stringify({ type: 'ml_position_saved', slot }));
     console.log(
@@ -1398,108 +1542,6 @@ async function handleMlPosRecall(ws, msg) {
 }
 
 
-/* --------------------------------------------------------
- * ML-Positionen – Legacy-Handler (save_ml_position / recall_ml_position)
- * ------------------------------------------------------*/
-
-async function handleSaveMlPositionLegacy(ws, msg) {
-  const conn = await pool.getConnection();
-  try {
-    const { button_index, name, fade_time_sec } = msg;
-    if (button_index == null) {
-      throw new Error('button_index fehlt');
-    }
-
-    // Ebenfalls nur den aktuellen Server-Stand verwenden
-    const pn = clamp(mlState.pan, 0, 1);
-    const tn = clamp(mlState.tilt, 0, 1);
-    const zn = clamp(mlState.zoom, 0, 1);
-    const fade = fade_time_sec != null ? Math.max(0, fade_time_sec) : 1.0;
-
-    const [rows] = await conn.query(
-      'SELECT id FROM ml_positions WHERE button_index = ?',
-      [button_index]
-    );
-
-    const effectiveName = name || 'Pos';
-
-    if (rows.length) {
-      await conn.query(
-        'UPDATE ml_positions SET name = ?, pan_norm = ?, tilt_norm = ?, zoom_norm = ?, fade_time_sec = ?, active = 1 WHERE button_index = ?',
-        [effectiveName, pn, tn, zn, fade, button_index]
-      );
-    } else {
-      await conn.query(
-        'INSERT INTO ml_positions (name, button_index, pan_norm, tilt_norm, zoom_norm, fade_time_sec, active) VALUES (?,?,?,?,?,?,1)',
-        [effectiveName, button_index, pn, tn, zn, fade]
-      );
-    }
-
-    await loadPositions();
-
-    ws.send(JSON.stringify({ type: 'ml_position_saved', button_index }));
-    console.log(
-      `[ML] (Legacy) Position auf Button ${button_index} gespeichert (${effectiveName}) – pan=${pn.toFixed(3)}, tilt=${tn.toFixed(3)}, zoom=${zn.toFixed(3)}`
-    );
-  } catch (err) {
-    console.error('[ML] Fehler beim Speichern der Position (Legacy):', err);
-    ws.send(JSON.stringify({ type: 'error', message: 'ML-Position konnte nicht gespeichert werden.' }));
-  } finally {
-    conn.release();
-  }
-}
-
-
-async function handleRecallMlPositionLegacy(ws, msg) {
-  const conn = await pool.getConnection();
-  try {
-    const { button_index } = msg;
-    if (button_index == null) {
-      throw new Error('button_index fehlt');
-    }
-
-    const [rows] = await conn.query(
-      'SELECT * FROM ml_positions WHERE button_index = ? AND active = 1',
-      [button_index]
-    );
-    if (!rows.length) {
-      ws.send(JSON.stringify({ type: 'error', message: 'ML-Position nicht gefunden.' })); 
-      return;
-    }
-
-    const pos  = rows[0];
-    const fade = pos.fade_time_sec || 1.0;
-
-    const targetPan  = clamp(pos.pan_norm,  0, 1);
-    const targetTilt = clamp(pos.tilt_norm, 0, 1);
-    const targetZoom = clamp(pos.zoom_norm, 0, 1);
-
-    startPositionFade(targetPan, targetTilt, targetZoom, fade);
-
-    const reply = {
-      type: 'ml_position_recalled',
-      button_index,
-      fade_time_sec: fade,
-      ml_state: {
-        pan:    targetPan,
-        tilt:   targetTilt,
-        zoom:   targetZoom,
-        dimmer: mlState.dimmer
-      }
-    };
-    ws.send(JSON.stringify(reply));
-
-    console.log(
-      `[ML] (Legacy) Position Button ${button_index} recall – ` +
-      `pan=${targetPan.toFixed(3)}, tilt=${targetTilt.toFixed(3)}, zoom=${targetZoom.toFixed(3)}, fade=${fade}s`
-    );
-  } catch (err) {
-    console.error('[ML] Fehler beim Recall der Position (Legacy):', err);
-    ws.send(JSON.stringify({ type: 'error', message: 'ML-Position konnte nicht geladen werden.' }));
-  } finally {
-    conn.release();
-  }
-}
 
 /* --------------------------------------------------------
  * Initialzustand an Client schicken

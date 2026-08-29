@@ -1,6 +1,12 @@
 # Atrium Light – WebSocket-Protokoll v2 (Entwurf)
 
-Stand: 2026-08-29 · Status: **Entwurf, noch nicht implementiert**
+Stand: 2026-08-29 · Status: **serverseitig implementiert**
+
+Die Befehle aus §3 und die `state`-Nachricht aus §4.3 sind im Backend
+vorhanden und getestet. Die v1-Namen laufen als Aliase weiter, bis das neue
+Frontend steht (§9); `save_ml_position` / `recall_ml_position` sind bereits
+entfernt. Noch offen ist die Verbindungssequenz aus §2 — statt
+`hello` + `patch` + `library` schickt der Server weiterhin `init_state`.
 
 Grundlage für den Frontend-Neubau und für Abschnitt 5/B2 der `ANALYSE.md`.
 Solange dieses Dokument Entwurf ist, gilt im Code weiterhin v1 (siehe §9).
