@@ -1,0 +1,23 @@
+# Abhaengigkeiten
+node_modules/
+
+# Lokale Konfiguration mit Zugangsdaten.
+# Die .env.example-Dateien bleiben bewusst versioniert.
+.env
+backend/.env
+!.env.example
+!backend/.env.example
+
+# Logs und Laufzeitkram
+*.log
+npm-debug.log*
+pids/
+*.pid
+
+# Editor / Betriebssystem
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
