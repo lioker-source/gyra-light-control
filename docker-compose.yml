@@ -5,7 +5,7 @@
 #   cp .env.example .env      # ggf. ARTNET_HOST anpassen
 #   docker compose up --build
 #
-#   Frontend:        http://localhost:8081
+#   Frontend:        http://localhost      (Port 80, per WEB_PORT aenderbar)
 #   Art-Net-Monitor: http://localhost:8082
 #   MariaDB:         localhost:3307  (user: gyra / pw: gyra)
 
@@ -14,12 +14,12 @@ services:
     image: mariadb:11
     restart: unless-stopped
     environment:
-      MARIADB_ROOT_PASSWORD: root
-      MARIADB_DATABASE: lichtsteuerung
-      MARIADB_USER: gyra
-      MARIADB_PASSWORD: gyra
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MARIADB_DATABASE: ${DB_NAME:-lichtsteuerung}
+      MARIADB_USER: ${DB_USER:-gyra}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-gyra}
     ports:
-      - "3307:3306"
+      - "${DB_PORT_HOST:-3307}:3306"
     volumes:
       # schema.sql bleibt die maßgebliche Strukturdefinition.
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -40,9 +40,9 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 3306
-      DB_USER: gyra
-      DB_PASSWORD: gyra
-      DB_NAME: lichtsteuerung
+      DB_USER: ${DB_USER:-gyra}
+      DB_PASSWORD: ${DB_PASSWORD:-gyra}
+      DB_NAME: ${DB_NAME:-lichtsteuerung}
       WS_PORT: 8080
       TICK_HZ: ${TICK_HZ:-40}
       # Ziel der Art-Net-Ausgabe. Default: der Monitor-Container.
@@ -54,7 +54,22 @@ services:
       ARTNET_BROADCAST_ADDR: ${ARTNET_BROADCAST_ADDR:-255.255.255.255}
       ARTNET_SYNC: ${ARTNET_SYNC:-false}
       ARTNET_DISCOVERY: ${ARTNET_DISCOVERY:-true}
+      ARTNET_PORT: ${ARTNET_PORT:-6454}
+      ARTNET_SHORT_NAME: ${ARTNET_SHORT_NAME:-AtriumLight}
+      ARTNET_LONG_NAME: ${ARTNET_LONG_NAME:-Atrium Light Server}
+      # Bedienverhalten (Pad, Positionen, Zustands-Broadcast)
+      PAD_SENSITIVITY: ${PAD_SENSITIVITY:-1.0}
+      JOY_FULL_RANGE_SEC: ${JOY_FULL_RANGE_SEC:-2.0}
+      ML_MOVE_TIMEOUT_MS: ${ML_MOVE_TIMEOUT_MS:-400}
+      POSITION_SLOT_COUNT: ${POSITION_SLOT_COUNT:-9}
+      POSITION_FADE_SEC: ${POSITION_FADE_SEC:-1.0}
+      STATE_HZ: ${STATE_HZ:-10}
+      STATE_KEEPALIVE_MS: ${STATE_KEEPALIVE_MS:-1000}
+      WS_PING_INTERVAL_MS: ${WS_PING_INTERVAL_MS:-15000}
+      # Diagnose
       DEBUG_WS_IN: ${DEBUG_WS_IN:-false}
+      DEBUG_TICKS: ${DEBUG_TICKS:-false}
+      DEBUG_ERRORS: ${DEBUG_ERRORS:-true}
     ports:
       # Host-Port aus LIGHT_WS_PORT: 8080 ist auf Rechnern mit grandMA3 onPC
       # belegt (dessen Web-Remote bindet 0.0.0.0:8080 und gewinnt gegen den
@@ -75,7 +90,9 @@ services:
       LIGHT_WS_HOST: ${LIGHT_WS_HOST:-}
       LIGHT_WS_PORT: ${LIGHT_WS_PORT:-8080}
     ports:
-      - "8081:80"
+      # Standard 80: das Pult ist dann einfach http://<Server-IP> ohne Port.
+      # Ist 80 auf dem Rechner belegt, WEB_PORT in der .env setzen.
+      - "${WEB_PORT:-80}:80"
     volumes:
       - ./frontend:/var/www/html:ro
 
@@ -86,7 +103,7 @@ services:
     environment:
       HTTP_PORT: 8082
     ports:
-      - "8082:8082"
+      - "${MONITOR_PORT:-8082}:8082"
     volumes:
       - ./tools:/tools:ro
 

@@ -18,10 +18,19 @@ startet alles im Hintergrund und nennt am Ende die Adressen.
 
 | Dienst | Adresse |
 |---|---|
-| Pult (Tablet/Browser) | `http://<Server-IP>:8081` |
+| Pult (Tablet/Browser) | `http://<Server-IP>` |
 | Art-Net-Monitor | `http://<Server-IP>:8082` |
 | WebSocket | `ws://<Server-IP>:8080` |
 | MariaDB | `<Server-IP>:3307` (`gyra` / `gyra`) |
+
+Das Pult liegt bewusst auf Port 80, damit am Tablet die nackte IP
+reicht. Ist 80 belegt, in der `.env` `WEB_PORT=8081` setzen –
+`start.sh` nennt danach die passende Adresse.
+
+> `start.sh` prüft nach dem Start, ob auf dem Web-Port wirklich das Pult
+> antwortet, und warnt sonst. Das ist kein Luxus: ein zweiter Webserver
+> kann den Port belegen, ohne dass `docker compose` etwas meldet — auf
+> dem Windows-Entwicklungsrechner tut das ein Apache in WSL.
 
 Weitere Befehle:
 
@@ -59,7 +68,7 @@ Danach `docker compose up -d backend`.
 Falls auf dem Server eine Firewall laeuft:
 
 ```bash
-sudo ufw allow 8081/tcp   # Weboberflaeche
+sudo ufw allow 80/tcp     # Weboberflaeche
 sudo ufw allow 8080/tcp   # WebSocket
 ```
 
@@ -73,7 +82,8 @@ sudo ufw allow 8080/tcp   # WebSocket
 - `frontend/index.php` – Tablet-Weboberfläche (W3.CSS, Touch-Pad, Zwei-Finger-Zoom/Dimmer, Gamepad, Preset-/Programmer-Fader, ML-Positionsbuttons, Zoom/Dimmer-Fader und Recall-Synchronisierung)
 - `backend/server.js` – WebSocket-, MySQL- und Art-Net-Server mit HTP-Mischung, ML-Steuerung, Positionsspeicherung und robustem Start/Fehlerhandling
 - `backend/package.json` – benötigte Node-Abhängigkeiten
-- `backend/.env.example` – Beispielkonfiguration ohne Passwort
+- `.env.example` – vollstaendige Konfiguration der Docker-Umgebung; jeder Wert ist optional und entspricht dem Default
+- `backend/.env.example` – dasselbe fuer den nativen Betrieb ohne Docker
 - `database/schema.sql` – aus dem produktiven Backend rekonstruierte Tabellenstruktur
 - `database/export-current-db.sh` – erzeugt auf dem echten Server einen vollständigen Dump inklusive aktueller Presets/Positionen/Patch
 - `ops/ecosystem.config.js` – optionale PM2-Konfiguration
@@ -177,7 +187,7 @@ Nach jeder Änderung `docker compose up -d backend`.
 
 Das Frontend ermittelt den WebSocket-Host automatisch aus der
 Browser-Adresszeile – vom Tablet also einfach
-`http://<IP-des-Rechners>:8081` aufrufen. Läuft das Backend woanders,
+`http://<IP-des-Rechners>` aufrufen. Läuft das Backend woanders,
 hilft `?ws=<host>[:<port>]` in der URL oder `LIGHT_WS_HOST` in der `.env`.
 
 ### Test-Patch
@@ -224,20 +234,20 @@ Getestet am 2026-09-01 mit iPad als Pult und einem Mac als Art-Net-Node.
    IPv4-Verbindung aus dem Netz — das Tablet landet dann auf MA3 statt auf
    dem Pult und bleibt auf „Verbinde …“ stehen. Über `localhost` faellt das
    nicht auf (siehe ANALYSE.md, D8). Standard ist deshalb 8090.
-3. Windows-Firewall: eingehend fuer den Web-Port (8081) und den WS-Port
+3. Windows-Firewall: eingehend fuer den Web-Port (80) und den WS-Port
    (8090) freigeben, sinnvollerweise eingegrenzt auf das eigene Netz und mit
    `-Profile Any` — Windows stuft das Netz nach einem WSL-/Docker-Neustart
    gern wieder als „Oeffentlich“ ein und profilgebundene Regeln greifen dann
    nicht mehr:
 
    ```powershell
-   New-NetFirewallRule -DisplayName 'Atrium Light Web (8081)' -Direction Inbound `
-     -Protocol TCP -LocalPort 8081 -Action Allow -Profile Any -RemoteAddress 192.168.178.0/24
+   New-NetFirewallRule -DisplayName 'Atrium Light Web (80)' -Direction Inbound `
+     -Protocol TCP -LocalPort 80 -Action Allow -Profile Any -RemoteAddress 192.168.178.0/24
    New-NetFirewallRule -DisplayName 'Atrium Light WebSocket (8090)' -Direction Inbound `
      -Protocol TCP -LocalPort 8090 -Action Allow -Profile Any -RemoteAddress 192.168.178.0/24
    ```
 
-4. Aufruf am Tablet: `http://<LAN-IP-des-Rechners>:8081/` — mit `http://`
+4. Aufruf am Tablet: `http://<LAN-IP-des-Rechners>/` — mit `http://`
    davor, sonst versucht Safari HTTPS.
 
 Die Kopfzeile zeigt bei fehlender Verbindung die WS-Adresse an, die das

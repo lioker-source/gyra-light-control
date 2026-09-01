@@ -65,19 +65,50 @@ echo
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -n "$ip" ] || ip="localhost"
-ws_port="$(grep -E '^LIGHT_WS_PORT=' .env 2>/dev/null | cut -d= -f2)"
-[ -n "$ws_port" ] || ws_port=8080
+
+# Aus der .env lesen, was der Nutzer gesetzt hat; sonst der Default aus
+# docker-compose.yml. Auskommentierte Zeilen zaehlen nicht.
+conf() {
+  local val
+  val="$(grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '
+')"
+  [ -n "$val" ] && echo "$val" || echo "$2"
+}
+
+web_port="$(conf WEB_PORT 80)"
+ws_port="$(conf LIGHT_WS_PORT 8080)"
+mon_port="$(conf MONITOR_PORT 8082)"
+db_port="$(conf DB_PORT_HOST 3307)"
+db_user="$(conf DB_USER gyra)"
+
+# Port 80 braucht keine Angabe in der Adresszeile.
+if [ "$web_port" = "80" ]; then web_url="http://${ip}"; else web_url="http://${ip}:${web_port}"; fi
+
+# Nachpruefen, dass auf dem Web-Port wirklich das Pult antwortet. Ein
+# anderer Webserver (Apache auf dem Host, unter Windows auch einer in
+# WSL) kann den Port belegen, ohne dass docker compose meckert.
+warn=""
+if command -v curl >/dev/null 2>&1; then
+  if ! curl -sf -m 3 "http://127.0.0.1:${web_port}/" 2>/dev/null | grep -q "Atrium Light"; then
+    warn="Auf Port ${web_port} antwortet nicht das Pult, sondern etwas anderes.
+  Belegt ein anderer Webserver den Port? Pruefen mit:  sudo ss -ltnp | grep :${web_port}
+  Entweder den abschalten oder in der .env einen freien Port setzen: WEB_PORT=8081"
+  fi
+fi
 
 cat <<INFO
 
 Atrium Light laeuft.
 
-  Pult (Tablet/Browser)   http://${ip}:8081
-  Art-Net-Monitor         http://${ip}:8082
+  Pult (Tablet/Browser)   ${web_url}
+  Art-Net-Monitor         http://${ip}:${mon_port}
   WebSocket               ws://${ip}:${ws_port}
-  MariaDB                 ${ip}:3307   (gyra / gyra)
+  MariaDB                 ${ip}:${db_port}   (User ${db_user})
 
   Logs      ./start.sh logs
   Stoppen   ./start.sh stop
 
 INFO
+
+[ -n "$warn" ] && echo "WARNUNG: $warn" >&2
+exit 0
