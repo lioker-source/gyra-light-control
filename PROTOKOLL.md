@@ -112,14 +112,27 @@ damit der vorherige Grandmaster-Stand beim Aufheben erhalten bleibt.
 
 `ml.goto` bricht eine laufende Positionsfahrt ab, `ml.move` ebenfalls.
 
+**Zoom und Dimmer sind teilbar.** Steht im Programmer oder in einem
+hochgezogenen Preset ein Wert für den Zoomkanal, gilt der; sonst führt das
+Pad. Der Dimmer bleibt zusätzlich HTP wie der Rest des Pults. Pan und Tilt
+haben im Programmer keinen Fader — dafür gibt es die Positionsauswahl.
+
 ### 3.3 Presets
 
 ```json
 { "type": "preset.fader",  "preset_id": 3, "level": 0.6 }
 { "type": "preset.save",   "preset_id": null, "name": "Warm", "page": 1,
   "fader_index": 4, "channels": [ { "channel_id": 7, "max_value": 1.0 } ] }
+{ "type": "preset.update", "preset_id": 3, "name": "Warm hell" }
 { "type": "preset.delete", "preset_id": 3 }
 ```
+
+`preset.update` ändert **nur** den Namen und lässt die gespeicherten
+Kanalwerte in Ruhe — dieselbe Trennung wie `position.update` bei den
+Positionen. Sie ist notwendig, weil `preset.save` mit `preset_id` die
+`light_preset_values` löscht und neu schreibt: ein blosses Umbenennen über
+`preset.save` würde den Inhalt des Presets durch den aktuellen Programmer
+ersetzen.
 
 `preset_id: null` legt neu an. Ist der Slot (`page` + `fader_index`) belegt,
 antwortet der Server mit `error` und `code: "slot_occupied"` — **überschreiben
@@ -138,12 +151,44 @@ Kanäle mit Wert 0 kommen dabei nicht mit. Wird `channels` mitgeschickt, gilt
 ausschliesslich diese Liste — damit bleibt ein Preset aus einer Teilauswahl
 möglich, und der Programmer-Stand spielt keine Rolle.
 
+**Die Position steckt als Verweis im Preset**, nicht als Pan/Tilt-Werte:
+`preset.save` nimmt `position_slot` entgegen (ohne Angabe die im Programmer
+gewählte). Wird der Fader eines solchen Presets von 0 aufgezogen, fährt der
+Kopf den Slot mit dessen Fadezeit an — einmalig beim Übergang, nicht bei
+jeder Faderbewegung: eine Position ist nicht dimmbar, sie wird ausgelöst.
+Damit bleiben Pan/Tilt allein in der Hand von Pad und Positionsliste und
+können sich nicht mit einem Preset streiten. `library.positions` nennt unter
+`used_by`, welche Presets auf einen Slot zeigen; beim Löschen einer Position
+setzt der Server deren `position_slot` auf `null`.
+
+**Speichern aus dem Programmer leert ihn.** Der Look steht danach im Preset;
+bliebe er zusätzlich im Programmer stehen, läge er doppelt übereinander. Bei
+mitgeschickten `channels` bleibt der Programmer unberührt. Das macht
+bewusst der Server: schickte der Client ein eigenes `programmer.clear`
+hinterher, könnte es während des noch laufenden Datenbankschreibens greifen
+und ein leeres Preset erzeugen.
+
 ### 3.4 Programmer
 
 ```json
 { "type": "programmer.channel", "channel_id": 12, "value": 0.5 }
 { "type": "programmer.clear" }
+{ "type": "programmer.load_preset", "preset_id": 3 }
+{ "type": "programmer.position",    "slot": 3 }
 ```
+
+`programmer.position` wählt die Position, die ein daraus gespeichertes Preset
+bekommt (`slot: null` = keine). Der Kopf fährt sie sofort an, damit sichtbar
+ist, was gespeichert wird. Der gewählte Slot steht als `programmer_position`
+im `state` und gehört zum Programmer wie die Kanalwerte: `programmer.clear`
+setzt ihn zurück, `programmer.load_preset` übernimmt ihn aus dem Preset.
+
+`programmer.load_preset` holt ein gespeichertes Preset zum Bearbeiten in den
+Programmer. Der Programmer wird dabei **ersetzt**, nicht ergänzt — sonst
+mischt sich der vorherige Stand unbemerkt in das Preset, das gleich
+zurückgespeichert wird. Der Client schickt nur die Absicht; die Werte kommen
+über den nächsten `state`-Broadcast zurück, es gibt also keine Antwort mit
+Kanaldaten und die Bibliothek bleibt schlank.
 
 ### 3.5 ML-Positionen
 
@@ -171,7 +216,41 @@ fahren. Beide Felder sind einzeln optional, mindestens eines muss gesetzt sein
 { "type": "settings.pad_sensitivity", "value": 0.6 }
 ```
 
-### 3.7 System
+### 3.7 Patch
+
+```json
+{ "type": "patch.fixture.create", "name": "RGB 16 5", "fixture_type": "rgbaw",
+  "universe": 0, "start_address": 44 }
+{ "type": "patch.fixture.update", "id": 12, "name": "RGB 16 2",
+  "fixture_type": "rgbaw", "universe": 0, "start_address": 11 }
+{ "type": "patch.fixture.delete", "id": 12 }
+```
+
+Der Server kennt die Bauarten als Vorlage und legt die Kanäle selbst an;
+der Client gibt nur Name, Bauart, Universe und Startadresse vor. `patch`
+nennt die verfügbaren Bauarten unter `fixture_types`
+(`{type, label, channel_count}`).
+
+**Was mit Presets passiert**, ist die entscheidende Unterscheidung:
+
+| Änderung | Kanäle | Presets |
+|---|---|---|
+| Name, Universe, Startadresse | bleiben, nur `dmx_address` und Name werden gesetzt | bleiben erhalten |
+| Bauart | werden gelöscht und neu angelegt | Werte dieser Kanäle gehen verloren |
+| Fixture gelöscht | werden gelöscht | Werte dieser Kanäle gehen verloren |
+
+Presets zeigen auf Kanal-IDs, und `light_preset_values` hängt mit
+`ON DELETE CASCADE` an `dmx_channels` — neue Kanäle bedeuten deshalb neue
+IDs und verlorene Werte. Deswegen bleiben beim blossen Umadressieren die
+Zeilen bestehen und wandern nur. Das Frontend warnt vor einem Bauartwechsel.
+
+Ein `moving_head` wird beim Anlegen zusätzlich in `ml_fixtures` verdrahtet
+(Pan/Tilt/Zoom/Dimmer), damit Pad und Positionen sofort greifen.
+
+Adressüberschneidungen werden **nicht** abgelehnt — beim Umpatchen ist eine
+Kollision zwischendurch normal. Das Frontend zeigt sie an.
+
+### 3.8 System
 
 ```json
 { "type": "system.reload" }
@@ -197,9 +276,14 @@ Dasselbe löst **SIGHUP** aus: `docker compose kill -s HUP backend`.
 
 ```json
 { "type": "patch",
+  "fixtures": [
+    { "id": 21, "name": "HW3TW13 1", "type": "moving_head",
+      "universe": 0, "start_address": 25 }
+  ],
   "channels": [
-    { "id": 25, "name": "Wash Dimmer", "universe": 0, "dmx_address": 25,
-      "channel_group": "ml", "fixed_value": null, "is_intensity": true }
+    { "id": 31, "name": "Wash Dimmer", "universe": 0, "dmx_address": 31,
+      "channel_group": "ml", "fixture_id": 21, "role": "dimmer",
+      "fixed_value": null, "is_intensity": true }
   ],
   "ml_fixtures": [
     { "id": 1, "name": "Hero Wash 300 TW",
@@ -210,6 +294,21 @@ Dasselbe löst **SIGHUP** aus: `docker compose kill -s HUP backend`.
 
 Neu gegenüber v1: `is_intensity` (§6) und die Invertierungs-Flags (B1.2, heute
 als `1 - pan` fest im Code).
+
+**`fixtures` und `fixture_id`/`role`** kamen dazu, damit der Programmer nach
+Gerät gruppieren und je Fixture auf- und zuklappen kann. `type` ist eine der
+Bauarten `dimmer`, `dimmer_shutter`, `rgbw`, `rgbaw`, `moving_head`; `role`
+benennt die Funktion des Kanals im Gerät (`r`, `g`, `b`, `a`, `w`, `dimmer`,
+`shutter`, `pan`, `zoom`, `ctc`, …) und ist die Grundlage für die
+Beschriftung im Fader.
+
+**`fixed_value` ist ein Startwert, kein Diktat.** Er gilt, solange weder ein
+Preset noch der Programmer den Kanal setzt — der Wash leuchtet damit nach dem
+Start, ohne dass Shutter und Segmente von Hand hochgezogen werden müssen.
+Sobald der Programmer für den Kanal einen Eintrag hat, gewinnt dieser, **auch
+wenn er 0 ist**: Licht ausschalten muss möglich bleiben. Früher wurde
+`fixed_value` ganz am Ende über alles geschrieben; solche Kanäle waren im
+Programmer deshalb unbedienbar und wurden dort ausgeblendet.
 
 ### 4.2 `library` — Presets und Positionen
 
@@ -252,6 +351,8 @@ zusätzlich sofort nach jeder Zustandsänderung.
 - `ml.fading` sagt, ob gerade eine Positionsfahrt läuft — das Frontend kann
   dann den Pad-Punkt mitziehen lassen und Bedienelemente sperren.
 - `preset_levels` und `programmer` enthalten nur Einträge ungleich 0.
+- `programmer_position` ist der im Programmer gewählte Positions-Slot
+  (`null` = keiner).
 
 ### 4.4 `error`
 
@@ -346,8 +447,8 @@ für alle. `patch.ml_fixtures` ist bereits eine Liste.
 | `error` (Freitext) | `error` mit `code` |
 
 Neu ohne Vorgänger: `master.grandmaster`, `master.blackout`,
-`programmer.clear`, `preset.delete`, `position.delete`, `position.update`,
-`library.positions`.
+`programmer.clear`, `programmer.load_preset`, `preset.delete`,
+`preset.update`, `position.delete`, `position.update`, `library.positions`.
 
 Ein Parallelbetrieb v1/v2 ist nicht vorgesehen — Frontend und Backend werden
 zusammen umgestellt.

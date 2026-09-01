@@ -1,0 +1,17 @@
+# Zeilenenden im Repo immer LF, damit Skripte und SQL-Dateien
+# auf dem Ubuntu-Server direkt laufen (CRLF bricht Shebangs).
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.yml  text eol=lf
+*.php  text eol=lf
+*.css  text eol=lf
+*.md   text eol=lf
+
+# Binaeres nicht anfassen
+*.png binary
+*.jpg binary
+*.gif binary

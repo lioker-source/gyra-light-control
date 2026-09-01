@@ -1,26 +1,31 @@
--- ============================================================
--- Test-Patch fuer die lokale Entwicklungsumgebung.
--- KEINE Produktionsdaten. Wird nur von docker-compose geladen.
+-- Patch auf den echten MA3-Stand ziehen (Screenshot vom 2026-09-01).
 --
--- Deckungsgleich mit dem MA3-Testpatch (MA3-Universe 1 = Art-Net-Universe 0),
--- Stand 2026-09-01:
---   6x Dimmer            je  1 Kanal   Adresse  1 -  6
---   RGB 16 1  LED RGBW      4 Kanaele  Adresse  7 - 10
---   RGB 16 2  LED RGBAW     5 Kanaele  Adresse 11 - 15
---   RGB 16 3  LED RGBAW     5 Kanaele  Adresse 16 - 20
---   RGB 16 4  LED RGBW      4 Kanaele  Adresse 21 - 24
---   HW3TW13 1 Hero Wash    19 Kanaele  Adresse 25 - 43
+--   Dim 1-6      Adr.  1 - 6    je 1 Kanal
+--   RGB 16 1     Adr.  7 - 10   LED RGBW
+--   RGB 16 2     Adr. 11 - 15   LED RGBAW
+--   RGB 16 3     Adr. 16 - 20   LED RGBAW
+--   RGB 16 4     Adr. 21 - 24   LED RGBW
+--   HW3TW13 1    Adr. 25 - 43   Hero Wash 300 TW, 19 Kanaele
 --
--- Die Kanal-IDs sind bewusst gleich der DMX-Adresse gewaehlt.
+-- Vorher lagen dort 4x RGB (7-18) und der Wash auf 19-37. Die LEDs wachsen
+-- von 3 auf 4 bzw. 5 Kanaele, deshalb rueckt der Wash von 19 auf 25.
 --
--- Kanalbelegung des Hero Wash 300 TW nach Handbuch (19-Kanal-Modus).
--- `fixed_value` ist ein STARTWERT: er gilt, solange weder Programmer noch
--- Preset den Kanal setzen. Der Wash leuchtet damit nach dem Start, ohne
--- dass Shutter und Segmente von Hand hochgezogen werden muessen - und
--- bleibt trotzdem im Programmer bedienbar.
--- ============================================================
+-- ACHTUNG: Kanaele ab Adresse 7 werden neu angelegt. Presetwerte, die auf
+-- diese Kanaele zeigten, verlieren dadurch ihre Bedeutung und werden
+-- geloescht - die Kanal-IDs zeigen danach auf andere Geraete. Presets, die
+-- nur die Dimmer 1-6 benutzen, bleiben unberuehrt.
+--
+-- Setzt die Migration 2026-09-01-fixtures.sql voraus.
 
 USE lichtsteuerung;
+
+START TRANSACTION;
+
+-- Alte Zuordnung loesen, damit die Fremdschluessel das Loeschen zulassen.
+DELETE FROM ml_fixtures;
+DELETE FROM light_preset_values WHERE channel_id >= 7;
+DELETE FROM dmx_channels WHERE id >= 7;
+DELETE FROM fixtures;
 
 -- ---------------------------------------------------------------- Fixtures
 INSERT INTO fixtures (id, name, fixture_type, universe, start_address, sort_order) VALUES
@@ -36,14 +41,8 @@ INSERT INTO fixtures (id, name, fixture_type, universe, start_address, sort_orde
   (14, 'RGB 16 4',  'rgbw',        0, 21, 23),
   (21, 'HW3TW13 1', 'moving_head', 0, 25, 30);
 
--- ------------------------------------------------------------ Dimmerkanaele
-INSERT INTO dmx_channels (id, name, universe, dmx_address, channel_group, fixture_id, role, sort_order, fixed_value, is_intensity) VALUES
-  ( 1, 'Dim 1', 0, 1, 'dimmer', 1, 'dimmer', 10, NULL, 1),
-  ( 2, 'Dim 2', 0, 2, 'dimmer', 2, 'dimmer', 11, NULL, 1),
-  ( 3, 'Dim 3', 0, 3, 'dimmer', 3, 'dimmer', 12, NULL, 1),
-  ( 4, 'Dim 4', 0, 4, 'dimmer', 4, 'dimmer', 13, NULL, 1),
-  ( 5, 'Dim 5', 0, 5, 'dimmer', 5, 'dimmer', 14, NULL, 1),
-  ( 6, 'Dim 6', 0, 6, 'dimmer', 6, 'dimmer', 15, NULL, 1);
+-- Die sechs Dimmer bleiben, bekommen nur ihre Fixture-Zuordnung.
+UPDATE dmx_channels SET fixture_id = id, role = 'dimmer' WHERE id BETWEEN 1 AND 6;
 
 -- -------------------------------------------------------------- LED-Kanaele
 INSERT INTO dmx_channels (id, name, universe, dmx_address, channel_group, fixture_id, role, sort_order, fixed_value, is_intensity) VALUES
@@ -101,20 +100,4 @@ INSERT INTO ml_fixtures
 VALUES
   (1, 'HW3TW13 1', 25, 26, 27, 28, 30, 31, 1, 0, 1, 10);
 
--- Zwei Beispiel-Presets auf Seite 1.
-INSERT INTO light_presets (id, name, page, fader_index, active) VALUES
-  (1, 'Dimmer Full', 1, 1, 1),
-  (2, 'LED Warm',    1, 2, 1);
-
-INSERT INTO light_preset_values (preset_id, channel_id, max_value) VALUES
-  (1,  1, 1.000000), (1,  2, 1.000000), (1,  3, 1.000000),
-  (1,  4, 1.000000), (1,  5, 1.000000), (1,  6, 1.000000),
-  -- LED Warm: Rot voll, Gruen halb, Weiss dazu; Blau bleibt aus.
-  (2,  7, 1.000000), (2,  8, 0.400000), (2, 10, 0.600000),
-  (2, 11, 1.000000), (2, 12, 0.400000), (2, 14, 0.500000), (2, 15, 0.600000),
-  (2, 16, 1.000000), (2, 17, 0.400000), (2, 19, 0.500000), (2, 20, 0.600000),
-  (2, 21, 1.000000), (2, 22, 0.400000), (2, 24, 0.600000);
-
-INSERT INTO ml_settings (name, value) VALUES
-  ('pad_sensitivity', '1.0')
-ON DUPLICATE KEY UPDATE value = VALUES(value);
+COMMIT;

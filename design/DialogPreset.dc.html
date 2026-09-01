@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #131211; color: #ECE7DE; font-family: 'IBM Plex Sans',system-ui,-apple-system,sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #E9A63F; } a:hover { color: #F8D9A0; }
+  </style>
+</helmet>
+
+<div style="width:660px;height:420px;background:#131211;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:24px;">
+  <div style="width:100%;background:#1C1A17;border:1px solid #4A443B;border-radius:14px;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box;box-shadow:0 24px 60px #0009;">
+    
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div style="font:600 18px/1.3 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#ECE7DE;">Platz ist belegt</div>
+      <div style="font:400 14px/1.5 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;">Seite 1, Fader 2 ist bereits mit <span style="color:#ECE7DE;">„LED Warm“</span> belegt. Überschreiben löscht die dort gespeicherten Kanalwerte.</div>
+    </div>
+    <div style="background:#232019;border:1px solid #34302A;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;">
+      <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;letter-spacing:.08em;">NEUER INHALT</div>
+      <div style="font:500 14px/1.4 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#ECE7DE;">8 Kanäle aus dem Programmer</div>
+      <div style="font:400 12px/1.5 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">Dim 3 · Dim 4 · RGB 1 R/G/B · RGB 2 R/G/B</div>
+    </div>
+    <div style="display:flex;gap:12px;">
+      <div style="flex-grow:1;height:52px;padding:0 22px;border-radius:10px;border:1px solid #4A443B;background:#232019;color:#A49B8C;display:flex;align-items:center;justify-content:center;">
+      <div style="font:600 14px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;">Abbrechen</div>
+    </div>
+      <div style="flex-grow:1;height:52px;padding:0 22px;border-radius:10px;border:1px solid #4A443B;background:#232019;color:#A49B8C;display:flex;align-items:center;justify-content:center;">
+      <div style="font:600 14px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;">Anderen Platz wählen</div>
+    </div>
+      <div style="flex-grow:1;height:52px;padding:0 22px;border-radius:10px;border:1px solid #D6503C;background:#2A1712;color:#D6503C;display:flex;align-items:center;justify-content:center;">
+      <div style="font:600 14px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;">Überschreiben</div>
+    </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

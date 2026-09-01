@@ -56,7 +56,10 @@ services:
       ARTNET_DISCOVERY: ${ARTNET_DISCOVERY:-true}
       DEBUG_WS_IN: ${DEBUG_WS_IN:-false}
     ports:
-      - "8080:8080"
+      # Host-Port aus LIGHT_WS_PORT: 8080 ist auf Rechnern mit grandMA3 onPC
+      # belegt (dessen Web-Remote bindet 0.0.0.0:8080 und gewinnt gegen den
+      # Dual-Stack-Socket von Docker). Der Container bleibt bei 8080.
+      - "${LIGHT_WS_PORT:-8080}:8080"
     volumes:
       - ./backend:/app
       - /app/node_modules

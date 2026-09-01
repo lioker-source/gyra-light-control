@@ -1,0 +1,446 @@
+/* Atrium Light – Tablet-Pult, Querformat.
+   Tokens und Masse aus dem Design-Entwurf (design/): dunkel-warmes Neutral,
+   IBM Plex Sans/Mono, Fadergriff 44 px als Touch-Untergrenze. */
+
+:root {
+  --bg:      #131211;
+  --panel:   #1C1A17;
+  --panel2:  #232019;
+  --sunk:    #100F0D;
+  --line:    #34302A;
+  --line2:   #4A443B;
+  --txt:     #ECE7DE;
+  --txt2:    #A49B8C;
+  --txt3:    #6B6357;
+  --amber:   #E9A63F;
+  --amberHi: #F8D9A0;
+  --teal:    #4FB3AC;
+  --red:     #D6503C;
+  --green:   #62A94A;
+  --blue:    #4A7FD6;
+
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--txt);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+#app { display: flex; flex-direction: column; height: 100%; }
+
+/* ---------- Kopfzeile ------------------------------------------------- */
+
+#header {
+  height: 68px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 16px;
+}
+
+.hdr-sep { width: 1px; height: 36px; background: var(--line); }
+.spacer  { flex-grow: 1; }
+
+#conn { display: flex; align-items: center; gap: 10px; }
+#conn-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--red); box-shadow: 0 0 0 4px rgba(214,80,60,.13);
+  transition: background .2s;
+}
+body.online #conn-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(98,169,74,.13); }
+#conn-label { font: 600 13px/1.2 var(--sans); }
+#conn-sub   { font: 400 11px/1.2 var(--mono); color: var(--txt3); }
+
+#statecount { display: flex; flex-direction: column; gap: 3px; }
+#statecount .cap { font: 400 11px/1 var(--mono); color: var(--txt3); }
+#statecount .row { display: flex; align-items: center; gap: 8px; }
+#state-hz  { font: 500 12px/1 var(--mono); color: var(--teal); }
+#state-sub { font: 400 11px/1 var(--sans); color: var(--txt3); }
+
+#gm-wrap { display: flex; align-items: center; gap: 12px; }
+#gm-wrap .cap { font: 500 12px/1 var(--sans); color: var(--txt2); }
+#gm-val { width: 52px; font: 600 15px/1 var(--mono); text-align: right; }
+
+/* Grandmaster: liegender Fader */
+.hfader {
+  position: relative; width: 220px; height: 40px;
+  background: var(--sunk); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; touch-action: none;
+}
+.hfader .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--amber); opacity: .85; }
+.hfader .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--amberHi); }
+.hfader .grip {
+  position: absolute; top: 2px; bottom: 2px; width: 44px;
+  background: var(--panel2); border: 1px solid var(--line2); border-radius: 6px;
+  transform: translateX(-22px);
+}
+
+#blackout {
+  width: 182px; height: 48px; border-radius: 10px;
+  border: 2px solid #5A2B22; background: #2A1712;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  position: relative; overflow: hidden;
+}
+#blackout .lbl { display: flex; align-items: center; gap: 8px; color: var(--red); }
+#blackout .lbl span { font: 600 15px/1 var(--sans); letter-spacing: .06em; }
+#blackout .hint { font: 400 10px/1 var(--sans); color: #8A4C3D; }
+#blackout .hold {
+  position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--red);
+}
+body.blackout #blackout { background: var(--red); border-color: var(--red); }
+body.blackout #blackout .lbl { color: #1A0E0B; }
+body.blackout #blackout .hint { color: #1A0E0B; }
+
+/* ---------- Reiter ---------------------------------------------------- */
+
+#tabs { display: flex; gap: 6px; }
+.tab {
+  height: 40px; padding: 0 18px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel2);
+  color: var(--txt2); font: 500 13px/1 var(--sans);
+  display: flex; align-items: center;
+}
+.tab.active { border-color: var(--amber); background: #2A2013; color: var(--amber); }
+
+/* ---------- Seiten ---------------------------------------------------- */
+
+main { flex-grow: 1; padding: 16px; overflow: hidden; }
+.page { display: none; flex-direction: column; gap: 16px; height: 100%; }
+.page.active { display: flex; }
+
+.sect-title { display: flex; justify-content: space-between; align-items: baseline; height: 20px; }
+.sect-title .t { font: 600 12px/1 var(--sans); letter-spacing: .08em; color: var(--txt2); text-transform: uppercase; }
+.sect-title .r { font: 400 11px/1 var(--mono); color: var(--txt3); }
+
+#live-row { display: flex; gap: 16px; }
+.col { display: flex; flex-direction: column; gap: 10px; }
+
+/* ---------- Pad ------------------------------------------------------- */
+
+#pad {
+  position: relative; width: 360px; height: 360px;
+  background: var(--sunk); border: 1px solid var(--line);
+  border-radius: 12px; overflow: hidden; touch-action: none;
+}
+#pad .grid-h, #pad .grid-v { position: absolute; background: #241F19; }
+#pad .grid-h { left: 0; right: 0; height: 1px; }
+#pad .grid-v { top: 0; bottom: 0; width: 1px; }
+#pad .grid-h.q, #pad .grid-v.q { background: #1C1813; }
+
+#pad-dot {
+  position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px;
+  border-radius: 50%; background: var(--amber);
+  box-shadow: 0 0 0 8px rgba(233,166,63,.13), 0 0 20px rgba(233,166,63,.33);
+  /* Der Zustand kommt mit 10 Hz. Ohne Interpolation ruckelt der Punkt
+     sichtbar, obwohl der Kopf gleichmaessig faehrt. */
+  transition: left .1s linear, top .1s linear;
+}
+#pad-fade {
+  position: absolute; left: 12px; top: 12px; display: none;
+  align-items: center; gap: 8px; padding: 5px 10px;
+  background: #0C0B0A; border: 1px solid rgba(79,179,172,.4); border-radius: 999px;
+}
+#pad-fade.on { display: flex; }
+#pad-fade i { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); }
+#pad-fade span { font: 500 11px/1 var(--mono); color: var(--teal); }
+
+#pad .axis { position: absolute; font: 400 10px/1 var(--mono); color: var(--txt3); letter-spacing: .14em; }
+#pad .axis.pan  { left: 0; right: 0; bottom: 8px; text-align: center; }
+#pad .axis.tilt { left: 8px; top: 50%; transform: translateY(-50%) rotate(-90deg); }
+
+/* ---------- Fader ----------------------------------------------------- */
+
+.fader {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 6px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  touch-action: none;
+}
+.fader .name {
+  font: 500 11px/1.25 var(--sans); color: var(--txt2);
+  text-align: center; height: 28px; overflow: hidden; width: 100%;
+}
+.fader .track { position: relative; width: 100%; flex-grow: 1; }
+.fader .rail {
+  position: absolute; left: 50%; transform: translateX(-50%); top: 0; bottom: 0;
+  width: 14px; background: var(--sunk); border: 1px solid #2A2620; border-radius: 8px;
+}
+.fader .fill {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 0;
+  width: 14px; background: var(--amber); border-radius: 8px;
+}
+.fader .grip {
+  position: absolute; left: -2px; right: -2px; height: 30px;
+  background: var(--panel2); border: 1px solid var(--line2); border-radius: 6px;
+  display: flex; align-items: center;
+}
+.fader .grip i { width: 100%; height: 2px; background: var(--amberHi); }
+.fader .val { font: 600 13px/1 var(--mono); color: var(--txt); }
+.fader .sub { font: 400 11px/1 var(--mono); color: var(--txt3); }
+.fader.locked { opacity: .4; }
+.fader.locked .grip { display: none; }
+.fader.holding { border-color: var(--line2); }
+
+.fader-empty {
+  border: 1px dashed var(--line); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.fader-empty span { font: 400 11px/1 var(--sans); color: var(--txt3); }
+
+/* ---------- Positionen ------------------------------------------------ */
+
+#positions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.pos {
+  position: relative; height: 118px; border-radius: 10px; padding: 12px;
+  border: 1px solid var(--line2); background: var(--panel);
+  display: flex; flex-direction: column;
+}
+.pos.free { border: 1px dashed var(--line); background: none; align-items: center; justify-content: center; gap: 4px; }
+.pos .top { display: flex; justify-content: space-between; align-items: baseline; }
+.pos .slot { font: 600 12px/1 var(--mono); color: var(--txt3); }
+.pos .fade { font: 400 11px/1 var(--mono); color: var(--txt3); }
+.pos .nm   { font: 500 16px/1.2 var(--sans); color: var(--txt); }
+.pos .mid  { flex-grow: 1; display: flex; align-items: center; }
+.pos.free .slot { font-size: 15px; }
+.pos.free .hint { font: 400 11px/1 var(--sans); color: var(--txt3); }
+.pos .ref { color: var(--amber); font-size: 11px; }
+
+.pos .edit {
+  position: absolute; right: 0; bottom: 0; width: 44px; height: 44px;
+  /* Bleibt bei 44 px: kleinere Kacheln duerfen das Trefferziel nicht
+     unter die Touch-Untergrenze druecken. */
+  display: flex; align-items: center; justify-content: center;
+  color: var(--txt3); font: 600 16px/1 var(--sans);
+}
+.pos.held { border-color: var(--amber); }
+
+/* ---------- Presetbank ------------------------------------------------ */
+
+#presetbank { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 6px; }
+#presetbank .fader, #presetbank .fader-empty { height: 188px; }
+
+/* ---------- Programmer ------------------------------------------------ */
+
+/* Fixtures nebeneinander, umbrechend. Der Wash ist mit 19 Fadern breiter
+   als der Schirm und bekommt deshalb eine ganze Zeile. */
+#prog-row {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  align-content: flex-start; overflow-y: auto; flex-grow: 1;
+}
+.card.fixture { padding: 10px 12px; gap: 10px; }
+.card.fixture .head { gap: 12px; cursor: default; }
+.card.fixture .ident { display: flex; flex-direction: column; gap: 2px; }
+.card.fixture .head .t { font: 600 13px/1.2 var(--sans); letter-spacing: 0; text-transform: none; }
+.card.fixture .head .r { font: 400 10px/1.2 var(--mono); color: var(--txt3); }
+.card.fixture .head .aktiv {
+  flex-grow: 1; text-align: right; padding-right: 4px;
+  font: 500 10px/1 var(--mono); color: var(--txt3);
+}
+.card.fixture .head .aktiv.an { color: var(--amber); }
+.card.fixture .head .chev { font: 400 13px/1 var(--sans); color: var(--txt2); width: 16px; text-align: center; }
+.card.fixture .faders { flex-wrap: wrap; gap: 6px; }
+/* Positionsauswahl im Programmer: eigene Zeile ueber den Fadern.
+   Frueher lag sie im Faderstreifen und rutschte beim Umbrechen dahinter. */
+.pospick {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--sunk); border: 1px solid var(--line);
+}
+.pospick .cap {
+  flex-shrink: 0; font: 400 10px/1.3 var(--mono); color: var(--txt3);
+  letter-spacing: .08em; width: 68px;
+}
+.pospick .wahl { display: flex; flex-wrap: wrap; gap: 6px; flex-grow: 1; }
+.pospick .p {
+  min-height: 44px; padding: 4px 12px; border-radius: 8px;
+  border: 1px solid var(--line2); background: var(--panel2);
+  display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  font: 500 13px/1 var(--sans); color: var(--txt2);
+}
+.pospick .p .n  { font: 600 10px/1 var(--mono); color: var(--txt3); }
+.pospick .p .nm { font: 500 13px/1.1 var(--sans); color: var(--txt); white-space: nowrap; }
+.pospick .p.sel { border-color: var(--amber); background: #2A2013; }
+.pospick .p.sel .n, .pospick .p.sel .nm { color: var(--amber); }
+
+.dlg .box.warn { border-color: var(--red); }
+.dlg .box.warn .cap { color: var(--red); }
+/* Zugeklappte Karten bauen ihre Fader gar nicht erst (siehe app.js). */
+.card.fixture.zu .faders { display: none; }
+.card.fixture.zu { align-self: flex-start; }
+/* Der Moving Head bekommt die volle Breite, sobald er offen ist. */
+.card.fixture:has(.head .r:not(:empty)) { min-width: 0; }
+.card.fixture.breit { width: 100%; }
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px; display: flex; flex-direction: column; gap: 12px;
+}
+.card .head { display: flex; justify-content: space-between; align-items: center; }
+.card .head .t { font: 600 13px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; }
+.card .head .r { display: flex; align-items: center; gap: 6px; font: 400 11px/1 var(--mono); color: var(--txt3); }
+.card .faders { display: flex; gap: 8px; justify-content: center; }
+
+#prog-bar {
+  height: 76px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; display: flex; align-items: center; padding: 0 16px; gap: 16px;
+}
+#prog-bar .t { font: 600 13px/1.2 var(--sans); }
+#prog-bar .s { font: 400 11px/1.2 var(--sans); color: var(--txt3); }
+
+.btn {
+  min-width: 150px; height: 48px; padding: 0 20px; border-radius: 10px;
+  border: 1px solid var(--line2); background: var(--panel2);
+  color: var(--txt2); font: 500 14px/1 var(--sans);
+  display: flex; align-items: center; justify-content: center;
+}
+.btn.primary { border-color: var(--amber); background: #2A2013; color: var(--amber); font-weight: 600; }
+.btn.danger  { border-color: var(--red);   background: #2A1712; color: var(--red);   font-weight: 600; }
+.btn:active  { filter: brightness(1.25); }
+
+/* ---------- Dialoge --------------------------------------------------- */
+
+#modal {
+  position: fixed; inset: 0; background: rgba(8,7,6,.72);
+  display: none; align-items: center; justify-content: center; z-index: 40;
+}
+#modal.on { display: flex; }
+.dlg {
+  width: 660px; max-width: calc(100vw - 48px);
+  background: var(--panel); border: 1px solid var(--line2); border-radius: 14px;
+  padding: 24px; display: flex; flex-direction: column; gap: 20px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.6);
+}
+.dlg h2 { margin: 0; font: 600 18px/1.3 var(--sans); }
+.dlg p  { margin: 0; font: 400 14px/1.5 var(--sans); color: var(--txt2); }
+.dlg .box {
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.dlg .box .cap  { font: 400 11px/1 var(--mono); color: var(--txt3); letter-spacing: .08em; }
+.dlg .box .main { font: 500 14px/1.4 var(--sans); }
+.dlg .box .list { font: 400 12px/1.5 var(--mono); color: var(--txt3); }
+.dlg .row { display: flex; gap: 12px; }
+/* min-width aus .btn (150 px) sprengt im Dialog die Breite, sobald mehr als
+   drei Knoepfe nebeneinander stehen. Im Dialog duerfen sie schrumpfen. */
+.dlg .row .btn { flex-grow: 1; height: 52px; min-width: 0; padding: 0 12px; }
+.dlg .row .btn.wide { flex-grow: 1; }
+.dlg .row .spacer { flex-grow: 1; }
+.dlg .field { display: flex; flex-direction: column; gap: 8px; }
+.dlg .field .cap { font: 400 11px/1 var(--sans); color: var(--txt3); letter-spacing: .06em; }
+.dlg input[type=text] {
+  height: 56px; border: 1px solid var(--line2); background: var(--sunk);
+  border-radius: 10px; padding: 0 16px; color: var(--txt);
+  font: 500 16px/1 var(--sans); outline: none; -webkit-user-select: text; user-select: text;
+}
+.dlg input[type=text]:focus { border-color: var(--amber); }
+.dlg .stepper { display: flex; gap: 12px; align-items: center; }
+.dlg .stepper .btn { min-width: 56px; width: 56px; height: 56px; padding: 0; font: 600 24px/1 var(--sans); }
+.dlg .stepper .out {
+  flex-grow: 1; height: 56px; border: 1px solid var(--line2); background: var(--sunk);
+  border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.dlg .stepper .out b { font: 600 22px/1 var(--mono); }
+.dlg .stepper .out span { font: 400 14px/1 var(--sans); color: var(--txt3); }
+.dlg .hr { height: 1px; background: var(--line); }
+.dlg .foot { font: 400 12px/1.5 var(--sans); color: var(--txt3); }
+
+/* Slot-Auswahl beim Speichern */
+#slotgrid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
+#slotgrid .slot {
+  height: 56px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel2); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px;
+}
+#slotgrid .slot .n { font: 600 13px/1 var(--mono); color: var(--txt2); }
+#slotgrid .slot .nm { font: 400 9px/1.1 var(--sans); color: var(--txt3); max-width: 100%; overflow: hidden; text-align: center; }
+#slotgrid .slot.taken { border-color: var(--line2); }
+#slotgrid .slot.sel { border-color: var(--amber); background: #2A2013; }
+#slotgrid .slot.sel .n { color: var(--amber); }
+
+/* ---------- Getrennt -------------------------------------------------- */
+
+#offline { position: fixed; inset: 0; display: none; z-index: 50; pointer-events: none; }
+body.offline #offline { display: block; }
+body.offline main, body.offline #tabs { filter: grayscale(.75) brightness(.55); }
+/* Bedienung wirklich sperren, nicht nur abdunkeln. */
+body.offline main, body.offline #tabs, body.offline #gm-wrap, body.offline #blackout { pointer-events: none; }
+#offline .frame { position: absolute; inset: 0; border: 4px solid var(--red); }
+#offline .band {
+  position: absolute; left: 0; right: 0; top: 0; height: 112px;
+  background: #2A1712; border-bottom: 2px solid var(--red);
+  display: flex; align-items: center; padding: 0 24px; gap: 20px;
+  pointer-events: auto;
+}
+#offline .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 6px rgba(214,80,60,.2); }
+#offline h3 { margin: 0; font: 600 22px/1.2 var(--sans); }
+#offline .sub { font: 400 14px/1.3 var(--sans); color: #D6A99E; }
+#offline .sub b { font-family: var(--mono); font-weight: 400; }
+#offline .try {
+  display: flex; align-items: center; gap: 10px; padding: 0 18px; height: 48px;
+  border: 1px solid var(--red); border-radius: 10px; font: 500 14px/1 var(--sans);
+}
+#offline .try i { width: 10px; height: 10px; border-radius: 50%; background: var(--red); }
+
+/* ---------- Kurzmeldung ----------------------------------------------- */
+
+#toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: var(--panel2); border: 1px solid var(--line2); border-radius: 10px;
+  padding: 12px 20px; font: 500 14px/1 var(--sans); color: var(--txt);
+  opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60;
+}
+#toast.on { opacity: 1; }
+#toast.err { border-color: var(--red); color: var(--red); }
+
+/* ---------- Patch-Editor ---------------------------------------------- */
+
+#patch-list {
+  flex-grow: 1; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px; align-content: start;
+}
+.prow {
+  display: flex; align-items: center; gap: 14px; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+}
+.prow.konflikt { border-color: var(--red); }
+.prow .adr { width: 62px; flex-shrink: 0; text-align: center; }
+.prow .adr .a { font: 600 20px/1 var(--mono); color: var(--amber); }
+.prow .adr .b { font: 400 10px/1.4 var(--mono); color: var(--txt3); }
+.prow .mitte { flex-grow: 1; min-width: 0; }
+.prow .mitte .nm { font: 600 14px/1.3 var(--sans); }
+.prow .mitte .ty { font: 400 11px/1.4 var(--sans); color: var(--txt3); }
+.prow .akt .btn { min-width: 0; height: 44px; padding: 0 16px; }
+
+#patch-bar {
+  height: 76px; flex-shrink: 0; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px;
+  display: flex; align-items: center; padding: 0 16px; gap: 16px;
+}
+#patch-bar .t { font: 600 13px/1.2 var(--sans); }
+#patch-bar .s { font: 400 11px/1.2 var(--sans); color: var(--txt3); }
+
+.typen { display: flex; flex-wrap: wrap; gap: 8px; }
+.typen .ty {
+  min-height: 52px; padding: 8px 14px; border-radius: 8px;
+  border: 1px solid var(--line2); background: var(--panel2);
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+}
+.typen .ty .l { font: 500 13px/1.2 var(--sans); color: var(--txt); }
+.typen .ty .n { font: 400 10px/1 var(--mono); color: var(--txt3); }
+.typen .ty.sel { border-color: var(--amber); background: #2A2013; }
+.typen .ty.sel .l { color: var(--amber); }

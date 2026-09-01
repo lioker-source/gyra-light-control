@@ -1,0 +1,79 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1280,
+      "h": 800
+    },
+    {
+      "file": "LiveAlternative.dc.html",
+      "x": 1400,
+      "y": 0,
+      "w": 1280,
+      "h": 800
+    },
+    {
+      "file": "Programmer.dc.html",
+      "x": 0,
+      "y": 960,
+      "w": 1280,
+      "h": 800
+    },
+    {
+      "file": "Getrennt.dc.html",
+      "x": 1400,
+      "y": 960,
+      "w": 1280,
+      "h": 800
+    },
+    {
+      "file": "DialogPreset.dc.html",
+      "x": 0,
+      "y": 1920,
+      "w": 660,
+      "h": 420
+    },
+    {
+      "file": "DialogPosition.dc.html",
+      "x": 760,
+      "y": 1920,
+      "w": 660,
+      "h": 620
+    }
+  ],
+  "annotations": [
+    {
+      "id": "note-server",
+      "x": 0,
+      "y": -190,
+      "w": 620,
+      "text": "Leitgedanke: der Server hält den Zustand, das Tablet stellt Anträge.\nDeshalb hat jeder Fader einen hellen Strich (= Serverwert), auf dem der Griff sitzt — die Stellung ist nie der lokale Wunsch, sondern das, was die Anlage wirklich tut. Die Kopfzeile zeigt mit \"10/s\", dass der Zustand laufend nachgeliefert wird."
+    },
+    {
+      "id": "note-layout",
+      "x": 1400,
+      "y": -190,
+      "w": 620,
+      "text": "Alternative Anordnung: Pad links, Preset-Bank rechts (2 Reihen à 8).\nIm Betrieb der eigentliche Unterschied — links Dauergriff für den Kopf, rechts der Daumen auf den Presets. Main hat stattdessen die Faderbank unten über die volle Breite, wie an einem echten Pult."
+    },
+    {
+      "id": "note-ml",
+      "x": 0,
+      "y": 1810,
+      "w": 620,
+      "text": "Im Programmer sind Pan/Tilt/Zoom/Dimmer des Wash gesperrt dargestellt: das Backend überschreibt diese Kanäle nachgelagert, Fader dort hätten keine Wirkung (Befund B der ANALYSE). Kanäle mit fixed_value tauchen gar nicht erst auf."
+    },
+    {
+      "id": "note-dialog",
+      "x": 760,
+      "y": 2600,
+      "w": 660,
+      "text": "Der Positions-Dialog ändert bewusst nur Name und Fadezeit (position.update). Neu setzen bleibt der lange Druck auf dem Live-Screen (position.store), damit Koordinaten weiter ausschließlich aus dem Serverzustand kommen."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

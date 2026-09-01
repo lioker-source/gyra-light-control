@@ -1,9 +1,75 @@
-# Atrium Light – produktiver Stand
+# Atrium Light
 
-Dieses Paket enthält den zuletzt auffindbaren produktiven Stand der Atrium-Light-Lösung und **nicht** die später erzeugten Standalone-Mockups.
+Pult-Weboberflaeche, WebSocket-/Art-Net-Server und Datenbank fuer die
+Lichtsteuerung im Atrium.
 
-## Inhalt
+## Schnellstart (Ubuntu-Server)
 
+Voraussetzung: Docker mit Compose-Plugin.
+
+```bash
+git clone git@github.com:lioker-source/gyra-light-control.git
+cd gyra-light-control
+./start.sh
+```
+
+Das war alles. `start.sh` legt bei Bedarf die `.env` an, baut die Images,
+startet alles im Hintergrund und nennt am Ende die Adressen.
+
+| Dienst | Adresse |
+|---|---|
+| Pult (Tablet/Browser) | `http://<Server-IP>:8081` |
+| Art-Net-Monitor | `http://<Server-IP>:8082` |
+| WebSocket | `ws://<Server-IP>:8080` |
+| MariaDB | `<Server-IP>:3307` (`gyra` / `gyra`) |
+
+Weitere Befehle:
+
+```bash
+./start.sh logs     # Logs mitlesen
+./start.sh stop     # anhalten
+./start.sh reset    # Datenbank loeschen und aus schema.sql + seed.test.sql neu aufbauen
+```
+
+Die Datenbank wird beim allerersten Start automatisch aus
+`database/schema.sql` und `database/seed.test.sql` aufgebaut; danach bleibt
+sie im Docker-Volume `db-data` erhalten.
+
+### Art-Net-Ziel
+
+Ohne Aenderung gehen die DMX-Pakete an den mitgelieferten Monitor-Container
+(`http://<Server-IP>:8082`) - gut zum Ausprobieren ohne Hardware. Fuer einen
+echten Node in der `.env`:
+
+```ini
+ARTNET_HOST=192.168.178.40
+# oder alle Nodes im Netz erreichen:
+ARTNET_MODE=broadcast
+ARTNET_BROADCAST_ADDR=192.168.178.255
+```
+
+Danach `docker compose up -d backend`.
+
+> Broadcast bleibt im Bridge-Netz von Compose haengen und erreicht keine
+> Hardware im LAN. Unicast an die IP des Nodes funktioniert dagegen: das UDP
+> wird sauber ins LAN genattet.
+
+### Ports freigeben
+
+Falls auf dem Server eine Firewall laeuft:
+
+```bash
+sudo ufw allow 8081/tcp   # Weboberflaeche
+sudo ufw allow 8080/tcp   # WebSocket
+```
+
+---
+
+## Hintergrund und Details
+
+### Inhalt
+
+- `start.sh` – startet/stoppt die komplette Umgebung (siehe Schnellstart)
 - `frontend/index.php` – Tablet-Weboberfläche (W3.CSS, Touch-Pad, Zwei-Finger-Zoom/Dimmer, Gamepad, Preset-/Programmer-Fader, ML-Positionsbuttons, Zoom/Dimmer-Fader und Recall-Synchronisierung)
 - `backend/server.js` – WebSocket-, MySQL- und Art-Net-Server mit HTP-Mischung, ML-Steuerung, Positionsspeicherung und robustem Start/Fehlerhandling
 - `backend/package.json` – benötigte Node-Abhängigkeiten
@@ -47,22 +113,8 @@ Das Backend lief unter `/opt/lightserver/server.js`. Das Frontend wird über PHP
 
 ## Lokale Testumgebung (Docker)
 
-Benötigt nur Docker – kein lokales PHP, Node oder MariaDB.
-
-```bash
-cp .env.example .env      # ggf. ARTNET_HOST anpassen
-docker compose up --build
-```
-
-| Dienst | Adresse | Zweck |
-|---|---|---|
-| Frontend | http://localhost:8081 | die Tablet-Oberfläche |
-| Art-Net-Monitor | http://localhost:8082 | zeigt die gesendeten DMX-Werte live – Ersatz für echte Hardware |
-| Backend (WebSocket) | ws://localhost:8080 | |
-| MariaDB | localhost:3307 | User `gyra` / Passwort `gyra` |
-
-Die Datenbank wird beim ersten Start automatisch aus `database/schema.sql`
-und `database/seed.test.sql` aufgebaut.
+Aufbau und Adressen siehe Schnellstart oben. Die folgenden Abschnitte
+beschreiben die Feinheiten.
 
 ### Art-Net-Ziel einstellen
 
@@ -134,15 +186,16 @@ hilft `?ws=<host>[:<port>]` in der URL oder `LIGHT_WS_HOST` in der `.env`.
 
 | Fixture | Kanäle | Adresse |
 |---|---|---|
-| Halogen-Dimmer | 1 | 1 |
-| RGBA LED-Par | 4 | 11 |
-| Hero Spot 300 TW | 19 | 21 |
+| 6x Dimmer | je 1 | 1 – 6 |
+| RGB 16 1 – LED RGBW | 4 | 7 – 10 |
+| RGB 16 2 – LED RGBAW | 5 | 11 – 15 |
+| RGB 16 3 – LED RGBAW | 5 | 16 – 20 |
+| RGB 16 4 – LED RGBW | 4 | 21 – 24 |
+| HW3TW13 1 – Hero Wash 300 TW | 19 | 25 – 43 |
 
-> Die Kanalbelegung des Hero Spot 300 TW ist **geraten** (typisches
-> Moving-Head-TW-Layout) und muss beim echten Patchen anhand des
-> Handbuchs korrigiert werden.
+Deckungsgleich mit dem MA3-Testpatch (MA3-Universe 1 = Art-Net-Universe 0).
 
-Datenbank zurücksetzen: `docker compose down -v && docker compose up --build`
+Datenbank zurücksetzen: `./start.sh reset`
 
 ### Konstante Fixture-Kanäle
 
@@ -151,3 +204,41 @@ stehen müssen, tragen ihn in `dmx_channels.fixed_value` (0..255, `NULL` =
 normal steuerbar). Der Server hält sie konstant, das Frontend blendet sie
 im Programmer aus. Früher war dafür eine feste ID-Liste `[33..39]` im
 Servercode verdrahtet.
+
+## Betrieb im Netz (Tablet + Art-Net-Node)
+
+Getestet am 2026-09-01 mit iPad als Pult und einem Mac als Art-Net-Node.
+
+1. In der Root-`.env`:
+   - `ARTNET_MODE=broadcast` mit `ARTNET_BROADCAST_ADDR=<Netz>.255` erreicht
+     mehrere Empfaenger gleichzeitig (z.B. MA3 lokal **und** einen Monitor im
+     LAN). `unicast` mit `ARTNET_HOST=<IP>` geht ebenfalls: UDP aus dem
+     Container wird sauber ins LAN genattet, Absender ist die LAN-IP des
+     Rechners.
+   - `LIGHT_WS_HOST=` leer lassen. Das Tablet nimmt den Host aus der
+     Adresszeile.
+   - `LIGHT_WS_PORT` bestimmt **beides**: den veroeffentlichten Docker-Port
+     und den Port, den die Seite dem Browser nennt.
+2. **Port 8080 nicht benutzen, solange grandMA3 onPC laeuft.** Dessen
+   Web-Remote bindet `0.0.0.0:8080` und gewinnt gegen Docker gegen jede
+   IPv4-Verbindung aus dem Netz — das Tablet landet dann auf MA3 statt auf
+   dem Pult und bleibt auf „Verbinde …“ stehen. Über `localhost` faellt das
+   nicht auf (siehe ANALYSE.md, D8). Standard ist deshalb 8090.
+3. Windows-Firewall: eingehend fuer den Web-Port (8081) und den WS-Port
+   (8090) freigeben, sinnvollerweise eingegrenzt auf das eigene Netz und mit
+   `-Profile Any` — Windows stuft das Netz nach einem WSL-/Docker-Neustart
+   gern wieder als „Oeffentlich“ ein und profilgebundene Regeln greifen dann
+   nicht mehr:
+
+   ```powershell
+   New-NetFirewallRule -DisplayName 'Atrium Light Web (8081)' -Direction Inbound `
+     -Protocol TCP -LocalPort 8081 -Action Allow -Profile Any -RemoteAddress 192.168.178.0/24
+   New-NetFirewallRule -DisplayName 'Atrium Light WebSocket (8090)' -Direction Inbound `
+     -Protocol TCP -LocalPort 8090 -Action Allow -Profile Any -RemoteAddress 192.168.178.0/24
+   ```
+
+4. Aufruf am Tablet: `http://<LAN-IP-des-Rechners>:8081/` — mit `http://`
+   davor, sonst versucht Safari HTTPS.
+
+Die Kopfzeile zeigt bei fehlender Verbindung die WS-Adresse an, die das
+Geraet anspricht. Das ist der schnellste Weg, einen Portfehler zu erkennen.

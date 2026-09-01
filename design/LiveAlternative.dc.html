@@ -1,0 +1,389 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #131211; color: #ECE7DE; font-family: 'IBM Plex Sans',system-ui,-apple-system,sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #E9A63F; } a:hover { color: #F8D9A0; }
+  </style>
+</helmet>
+
+<div style="width:1280px;height:800px;display:flex;flex-direction:column;background:#131211;box-sizing:border-box;overflow:hidden;">
+  
+<div style="height:68px;flex-shrink:0;background:#1C1A17;border-bottom:1px solid #34302A;display:flex;align-items:center;padding:0 16px;gap:16px;box-sizing:border-box;">
+
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div style="width:14px;height:14px;border-radius:50%;background:#62A94A;box-shadow:0 0 0 4px #62A94A22;"></div>
+    <div>
+      <div style="font:600 13px/1.2 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#ECE7DE;">Verbunden</div>
+      <div style="font:400 11px/1.2 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">atrium-light · Universe 0</div>
+    </div>
+  </div>
+
+  <div style="width:1px;height:36px;background:#34302A;"></div>
+
+  <div style="display:flex;flex-direction:column;gap:3px;">
+    <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">Zustand vom Server</div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="font:500 12px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#4FB3AC;">10/s</div>
+      <div style="font:400 11px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#6B6357;">laufend aufgefrischt</div>
+    </div>
+  </div>
+
+  <div style="flex-grow:1;"></div>
+
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div style="font:500 12px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;">Grandmaster</div>
+    <div style="position:relative;width:220px;height:40px;background:#100F0D;border:1px solid #34302A;border-radius:8px;overflow:hidden;">
+      <div style="position:absolute;left:0;top:0;bottom:0;width:100%;background:#E9A63F;opacity:.85;"></div>
+      <div style="position:absolute;left:100%;top:0;bottom:0;width:2px;background:#F8D9A0;"></div>
+      <div style="position:absolute;left:88%;top:2px;bottom:2px;width:44px;background:#232019;border:1px solid #4A443B;border-radius:6px;"></div>
+    </div>
+    <div style="width:52px;font:600 15px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;text-align:right;">100%</div>
+  </div>
+
+  <div style="width:1px;height:36px;background:#34302A;"></div>
+
+  <div style="width:182px;height:48px;border-radius:10px;border:2px solid #5A2B22;background:#2A1712;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">
+    <div style="display:flex;align-items:center;gap:8px;color:#D6503C;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"></path></svg>
+      <div style="font:600 15px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;letter-spacing:.06em;">BLACKOUT</div>
+    </div>
+    <div style="font:400 10px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#8A4C3D;">2 s halten</div>
+  </div>
+</div>
+  <div style="flex-grow:1;padding:16px;display:flex;gap:16px;box-sizing:border-box;">
+
+    <div style="width:608px;display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;gap:16px;">
+        
+<div style="width:360px;display:flex;flex-direction:column;gap:10px;">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;height:20px;">
+    <div style="font:600 12px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;letter-spacing:.08em;color:#A49B8C;text-transform:uppercase;">Moving Light</div>
+    <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">Ist-Position</div>
+  </div>
+  <div style="position:relative;width:360px;height:360px;background:#100F0D;border:1px solid #34302A;border-radius:12px;overflow:hidden;">
+    <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#241F19;"></div>
+    <div style="position:absolute;top:0;bottom:0;left:50%;width:1px;background:#241F19;"></div>
+    <div style="position:absolute;left:0;right:0;top:25%;height:1px;background:#1C1813;"></div>
+    <div style="position:absolute;left:0;right:0;top:75%;height:1px;background:#1C1813;"></div>
+    <div style="position:absolute;top:0;bottom:0;left:25%;width:1px;background:#1C1813;"></div>
+    <div style="position:absolute;top:0;bottom:0;left:75%;width:1px;background:#1C1813;"></div>
+
+    <div style="position:absolute;left:122px;top:122px;width:30px;height:30px;border-radius:50%;background:#E9A63F;box-shadow:0 0 0 8px #E9A63F22, 0 0 20px #E9A63F55;"></div>
+
+    <div style="position:absolute;left:12px;top:12px;display:flex;align-items:center;gap:8px;padding:5px 10px;background:#0C0B0A;border:1px solid #4FB3AC66;border-radius:999px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:#4FB3AC;"></div>
+      <div style="font:500 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#4FB3AC;">FAHRT LÄUFT</div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:8px;text-align:center;font:400 10px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;letter-spacing:.14em;">PAN</div>
+    <div style="position:absolute;left:8px;top:50%;transform:translateY(-50%) rotate(-90deg);font:400 10px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;letter-spacing:.14em;">TILT</div>
+  </div>
+</div>
+        
+<div style="width:232px;display:flex;flex-direction:column;gap:10px;">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;height:20px;">
+    <div style="font:600 12px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;letter-spacing:.08em;color:#A49B8C;text-transform:uppercase;">Wash</div>
+    <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">live</div>
+  </div>
+  <div style="display:flex;gap:8px;">
+    
+  <div style="width:72px;height:380px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Zoom</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:154px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:139px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">55%</div>
+    
+  </div>
+    
+  <div style="width:72px;height:380px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Dimmer</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:218px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:203px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">78%</div>
+    
+  </div>
+    
+  <div style="width:72px;height:380px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Pad-Empfind&shy;lichkeit</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:168px;background:#4FB3AC;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:153px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">60%</div>
+    
+  </div>
+  </div>
+</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;height:20px;">
+    <div style="font:600 12px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;letter-spacing:.08em;color:#A49B8C;text-transform:uppercase;">Positionen</div>
+    <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">tippen = anfahren · halten = speichern</div>
+  </div>
+        <div style="display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:12px;">
+          <div style="height:92px;border:1px solid #4A443B;border-radius:10px;background:#1C1A17;padding:10px;display:flex;flex-direction:column;box-sizing:border-box;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <div style="font:600 12px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">1</div>
+                <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">2.0 s</div>
+              </div>
+              <div style="flex-grow:1;display:flex;align-items:center;"><div style="font:500 14px/1.2 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#ECE7DE;">Empfang</div></div>
+            </div>
+          <div style="height:92px;border:1px solid #4A443B;border-radius:10px;background:#1C1A17;padding:10px;display:flex;flex-direction:column;box-sizing:border-box;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <div style="font:600 12px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">2</div>
+                <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">3.0 s</div>
+              </div>
+              <div style="flex-grow:1;display:flex;align-items:center;"><div style="font:500 14px/1.2 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#ECE7DE;">Treppe</div></div>
+            </div>
+          <div style="height:92px;border:1px solid #4A443B;border-radius:10px;background:#1C1A17;padding:10px;display:flex;flex-direction:column;box-sizing:border-box;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <div style="font:600 12px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">3</div>
+                <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">2.0 s</div>
+              </div>
+              <div style="flex-grow:1;display:flex;align-items:center;"><div style="font:500 14px/1.2 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#ECE7DE;">Galerie li</div></div>
+            </div>
+          <div style="height:92px;border:1px solid #4A443B;border-radius:10px;background:#1C1A17;padding:10px;display:flex;flex-direction:column;box-sizing:border-box;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <div style="font:600 12px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">4</div>
+                <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">2.0 s</div>
+              </div>
+              <div style="flex-grow:1;display:flex;align-items:center;"><div style="font:500 14px/1.2 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#ECE7DE;">Galerie re</div></div>
+            </div>
+          <div style="height:92px;border:1px solid #4A443B;border-radius:10px;background:#1C1A17;padding:10px;display:flex;flex-direction:column;box-sizing:border-box;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <div style="font:600 12px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">5</div>
+                <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">5.5 s</div>
+              </div>
+              <div style="flex-grow:1;display:flex;align-items:center;"><div style="font:500 14px/1.2 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#ECE7DE;">Bar</div></div>
+            </div>
+          <div style="height:92px;border:1px dashed #34302A;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">
+              <div style="font:600 14px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">6</div>
+              <div style="font:400 10px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#6B6357;">leer</div>
+            </div>
+          <div style="height:92px;border:1px solid #4A443B;border-radius:10px;background:#1C1A17;padding:10px;display:flex;flex-direction:column;box-sizing:border-box;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <div style="font:600 12px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">7</div>
+                <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">4.0 s</div>
+              </div>
+              <div style="flex-grow:1;display:flex;align-items:center;"><div style="font:500 14px/1.2 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#ECE7DE;">Grundstellung</div></div>
+            </div>
+          <div style="height:92px;border:1px dashed #34302A;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">
+              <div style="font:600 14px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">8</div>
+              <div style="font:400 10px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#6B6357;">leer</div>
+            </div>
+          <div style="height:92px;border:1px dashed #34302A;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">
+              <div style="font:600 14px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">9</div>
+              <div style="font:400 10px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#6B6357;">leer</div>
+            </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:1px;background:#34302A;"></div>
+
+    <div style="flex-grow:1;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;height:20px;">
+    <div style="font:600 12px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;letter-spacing:.08em;color:#A49B8C;text-transform:uppercase;">Presets</div>
+    <div style="font:400 11px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#6B6357;">16 Plätze</div>
+  </div>
+      <div style="display:grid;grid-template-columns:repeat(8, minmax(0, 1fr));gap:6px;">
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Dimmer Full</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:0px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:-4px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">0%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">LED Warm</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:146px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:131px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">62%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Grundlicht</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:201px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:186px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">85%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Empfang</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:0px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:-4px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">0%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Abend</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:94px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:79px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">40%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Putzlicht</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:0px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:-4px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">0%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Vortrag</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:0px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:-4px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">0%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Bar</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:59px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:44px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">25%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Foyer kalt</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:0px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:-4px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">0%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Foyer warm</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:165px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:150px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">70%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Akzent Treppe</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:0px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:-4px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">0%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;background:#1C1A17;border:1px solid #34302A;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;box-sizing:border-box;">
+    <div style="font:500 11px/1.25 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#A49B8C;text-align:center;height:28px;overflow:hidden;">Galerie</div>
+    <div style="position:relative;width:100%;flex-grow:1;">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:14px;background:#100F0D;border:1px solid #2A2620;border-radius:8px;"></div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:14px;height:0px;background:#E9A63F;border-radius:8px;"></div>
+      <div style="position:absolute;left:-2px;right:-2px;bottom:-4px;height:30px;background:#232019;border:1px solid #4A443B;border-radius:6px;display:flex;align-items:center;">
+        <div style="width:100%;height:2px;background:#F8D9A0;"></div>
+      </div>
+    </div>
+    <div style="font:600 13px/1 'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;color:#ECE7DE;">0%</div>
+    
+  </div>
+      
+  <div style="width:70px;height:316px;border:1px dashed #34302A;border-radius:10px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;">
+    <div style="font:400 11px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#6B6357;">Fader 13</div>
+  </div>
+      
+  <div style="width:70px;height:316px;border:1px dashed #34302A;border-radius:10px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;">
+    <div style="font:400 11px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#6B6357;">Fader 14</div>
+  </div>
+      
+  <div style="width:70px;height:316px;border:1px dashed #34302A;border-radius:10px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;">
+    <div style="font:400 11px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#6B6357;">Fader 15</div>
+  </div>
+      
+  <div style="width:70px;height:316px;border:1px dashed #34302A;border-radius:10px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;">
+    <div style="font:400 11px/1 'IBM Plex Sans',system-ui,-apple-system,sans-serif;color:#6B6357;">Fader 16</div>
+  </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

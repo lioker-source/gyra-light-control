@@ -66,11 +66,11 @@ Tablet/Browser ──ws://<server>:8080──> Node "lightserver" ──Art-Net/
 | A2 | **Positions-Fades waren tot.** Beide Recall-Handler lasen `fade_time_sec` in eine nie verwendete Variable `fade` und setzten hart. | `server.js:839/846-848`, `950/955-957` | **erledigt 2026-08-29** – siehe B1.1 in Abschnitt 5 |
 | A3 | Hart kodierte Kanal-IDs 33–39 auf 255. | `server.js` | **erledigt** – ersetzt durch `dmx_channels.fixed_value`; solche Kanäle werden im Programmer ausgeblendet (`index.php:1726`) |
 | A4 | **Dimmer-Fader springt nach Recall nicht mit.** `window.dimmerFaderState` ist wegen `let` immer `undefined` ⇒ der Block läuft nie. | `index.php:545, 1914` | **entfällt** – Frontend wird neu gebaut |
-| A5 | **Pad zeigt Auslenkung, nicht Position.** Der Punkt visualisiert die Joystick-Deflection; die echte Pan/Tilt-Position des ML ist im UI nirgends sichtbar und wird vom Server nie zurückgemeldet. | Konzept | **offen** |
-| A6 | **Kein State-Broadcast.** `broadcast()` ist implementiert, wird aber nur für `pad_sensitivity` benutzt. Preset-Fader, Positions-Recalls usw. gehen nur an den auslösenden Client. Zwei Tablets laufen sofort auseinander. | `server.js:597, 659` | **offen** |
-| A7 | `loadPresets()` + `loadPadSettings()` bei **jedem** Connect; Reconnect-Storm = DB-Last. | `server.js:584-589` | **offen** |
-| A8 | Preset-Seiten unbenutzbar: das Frontend sendet `page` fest als `1`. Backend und Schema können mehrere Seiten. | `index.php:1798` | **offen** |
-| A9 | *(Frontend-Ursache entfällt mit dem Neubau; die Protokoll-Konsequenz steht als B2.8 in Abschnitt 5.)* **Jeder offene Browser-Tab sendet permanent mit 20 Hz.** `gamepadLoop()` läuft über `requestAnimationFrame` bedingungslos — ohne Gamepad, ohne Pad-Berührung — und ruft am Ende `sendStateToServer()`. Der Tab drückt damit dauerhaft seinen lokalen Zoom-/Dimmer-Stand auf den Server. Folgen: (a) zusammen mit A6 überschreiben sich zwei Tablets 20-mal pro Sekunde gegenseitig, statt nur auseinanderzulaufen; (b) kein anderer Client und kein Testskript kann `mlState` bewegen, solange irgendein Tab offen ist; (c) unnötige Dauerlast auf WS und CPU. Gemessen: ein offener Tab hat Zoom dauerhaft auf 128 (=0.5) und Dimmer auf 0 festgenagelt. | `index.php:1223, 1227` | **offen** |
+| A5 | **Pad zeigt Auslenkung, nicht Position.** Der Punkt visualisiert die Joystick-Deflection; die echte Pan/Tilt-Position des ML ist im UI nirgends sichtbar und wird vom Server nie zurückgemeldet. | Konzept | **erledigt 2026-09-01** – das Pad zeigt jetzt `state.ml.pan/tilt` als Ist-Punkt, der Finger erzeugt nur noch Geschwindigkeit (Frontend-Neubau, Abschnitt 6). |
+| A6 | **Kein State-Broadcast.** `broadcast()` ist implementiert, wird aber nur für `pad_sensitivity` benutzt. Preset-Fader, Positions-Recalls usw. gehen nur an den auslösenden Client. Zwei Tablets laufen sofort auseinander. | `server.js:597, 659` | **erledigt** – serverseitig B2.1/B2.2, clientseitig mit dem Neubau. |
+| A7 | `loadPresets()` + `loadPadSettings()` bei **jedem** Connect; Reconnect-Storm = DB-Last. | `server.js:584-589` | **erledigt** – siehe B3.1. |
+| A8 | Preset-Seiten unbenutzbar: das Frontend sendet `page` fest als `1`. Backend und Schema können mehrere Seiten. | `index.php:1798` | **entfaellt 2026-09-01** – Entscheidung: eine feste Bank mit 16 Plaetzen, keine Seiten (Abschnitt 6). `page` bleibt im Schema und im Protokoll, das Frontend nutzt fest Seite 1. |
+| A9 | *(Frontend-Ursache entfällt mit dem Neubau; die Protokoll-Konsequenz steht als B2.8 in Abschnitt 5.)* **Jeder offene Browser-Tab sendet permanent mit 20 Hz.** `gamepadLoop()` läuft über `requestAnimationFrame` bedingungslos — ohne Gamepad, ohne Pad-Berührung — und ruft am Ende `sendStateToServer()`. Der Tab drückt damit dauerhaft seinen lokalen Zoom-/Dimmer-Stand auf den Server. Folgen: (a) zusammen mit A6 überschreiben sich zwei Tablets 20-mal pro Sekunde gegenseitig, statt nur auseinanderzulaufen; (b) kein anderer Client und kein Testskript kann `mlState` bewegen, solange irgendein Tab offen ist; (c) unnötige Dauerlast auf WS und CPU. Gemessen: ein offener Tab hat Zoom dauerhaft auf 128 (=0.5) und Dimmer auf 0 festgenagelt. | `index.php:1223, 1227` | **erledigt 2026-09-01** – der Neubau sendet nur bei Änderung; `ml.move` läuft ausschliesslich während einer Pad-Berührung und meldet beim Loslassen genau einmal 0. Verifiziert: nach dem Loslassen Funkstille. |
 
 ### B. Bedienbarkeit
 
@@ -114,6 +114,7 @@ Befunde aus der Inbetriebnahme mit MA3 / Artnetominator am 2026-08-29.
 | D5 | **Kanalbelegung des Hero Wash 300 TW war geraten** — und zwar falsch an entscheidender Stelle: rel. 6 ist Zoom (nicht Dimmer), rel. 7 ist der Dimmer (war als „Dimmer Fine" fest auf 0 genagelt), rel. 9-14 sind die sechs Kalt-/Warmweiss-Segmente (das eigentliche Leuchtmittel, standen auf 0). Der Dimmer konnte deshalb gar nicht wirken. | **erledigt 2026-08-29** – Belegung aus dem Handbuch übernommen: Zoom→24, Dimmer→25, Stroboskop 26 fest 255, Segmente 27-32 fest 255, Farbtemperatur 33 fest 128, 34-37 fest 0. `seed.test.sql` korrigiert **und** per `UPDATE` in die laufende DB gezogen (ohne `down -v`, Presets blieben erhalten). |
 | D6 | **`seed.test.sql` greift nur bei leerer DB.** Änderungen am Test-Patch erfordern `docker compose down -v` — dabei gehen lokal angelegte Presets und ML-Positionen verloren. Ein Migrations-/Reset-Skript fehlt. | **teilweise** – der MA3-Patch ist inzwischen geladen (37 Kanäle, verifiziert), das fehlende Reset-Skript bleibt offen |
 | D7 | **Keine `.gitignore`.** | **erledigt 2026-08-29** – siehe B4.3 in Abschnitt 5. |
+| D8 | **grandMA3 onPC kapert den WS-Port fuer Geraete im LAN.** `app_gma3.exe` bindet sein Web-Remote auf `0.0.0.0:8080`, Docker veroeffentlicht daneben auf `::` (Dual-Stack). Bei einer **IPv4**-Verbindung aus dem Netz gewinnt der spezifischere IPv4-Socket — das Tablet landet auf MA3, bekommt einen gueltigen WebSocket-Handshake und als erste Nachricht `{"status":"server ready"}`. Unser `hello` kommt nie, die Oberflaeche bleibt auf „Verbinde …“ stehen. **Lokal unsichtbar**, weil `localhost` zuerst auf `::1` aufloest und dort Docker sitzt — alle Tests ueber `localhost` liefen gruen. Derselbe Mechanismus wie D4, nur auf TCP statt UDP. | **erledigt 2026-09-01** – Host-Port auf 8090 (dort kein Konflikt, verifiziert: `hello, protocol 2` ueber `ws://192.168.178.61:8090`). `docker-compose.yml` leitet den Backend-Port jetzt aus `LIGHT_WS_PORT` ab (`"${LIGHT_WS_PORT:-8090}:8080"`, vorher fest `8080:8080`) — vorher konnten Seite und Portfreigabe auseinanderlaufen. |
 
 ---
 
@@ -136,7 +137,7 @@ Befunde aus der Inbetriebnahme mit MA3 / Artnetominator am 2026-08-29.
 
 ### Priorität 3 – Erweiterungen
 11. Fixture-/Gruppenauswahl für Movinglights statt eines globalen ML-States.
-12. Patch-Editor im Frontend (Kanäle anlegen/umbenennen/adressieren) statt SQL von Hand.
+12. ~~Patch-Editor im Frontend~~ **erledigt 2026-09-01** – eigener Reiter mit einer Zeile je Fixture; Anlegen, Umbenennen, Umadressieren, Bauart wechseln und Löschen. Der Server hält die Bauart-Vorlagen und legt die Kanäle an. Umadressieren behält die Kanal-IDs und damit die Presets; ein Bauartwechsel nicht — davor wird gewarnt.
 13. Einfache Cues/Chaser oder wenigstens Preset-Fade-Zeiten.
 14. Zugriffsschutz (PIN-/Token-Login), optional `wss://` hinter Reverse-Proxy.
 
@@ -262,3 +263,78 @@ das gleich wieder geändert wird.
 | B4.2 | Reset-/Migrationsskript für die Testdatenbank. | **verworfen 2026-08-29** – beim Testen wird die DB einfach neu aufgesetzt (`docker compose down -v`). Die beiden vorhandenen Migrationen in `database/migrations/` sind idempotent und bleiben für die Produktiv-DB nutzbar. |
 | B4.3 | ~~`.gitignore` anlegen; `.env` aus der Versionierung nehmen.~~ **erledigt 2026-08-29** – `.gitignore` deckt `node_modules/`, beide `.env` (mit Ausnahmen für die `.env.example`), Logs und Editor-/OS-Dateien ab. `.env` und `backend/.env` waren bereits getrackt und wurden per `git rm --cached` aus dem Index genommen; die Dateien liegen unverändert auf der Platte. **Rest-Risiko:** beide stehen weiterhin in der Historie — aktuell unkritisch (`DB_PASSWORD=CHANGE_ME`), aber sobald dort ein echtes Passwort eingecheckt würde, hilft nur History-Rewriting. | D7 |
 | B4.4 | Tests, Lint, CI. | **verworfen 2026-08-29** – bewusst nicht verfolgt. |
+
+---
+
+## 6. Frontend-Neubau (2026-09-01)
+
+`frontend/index.php` (1940 Z., eine Datei) ist ersetzt durch
+`index.php` (169 Z.) + `app.css` (348 Z.) + `app.js` (874 Z.).
+Grundlage ist die Design-Canvas unter `design/` (aus `design/build.mjs`
+erzeugt, Artboard *Main*). Die PHP-Ermittlung des WS-Hosts
+(`LIGHT_WS_HOST`, `?ws=`, sonst Browser-Host) wurde unveraendert uebernommen.
+
+**Nur noch Protokoll v2.** Der Client verarbeitet `hello` (mit
+Versionspruefung, bei Abweichung trennt er selbst), `patch`, `library`,
+`state`, `error`, `reloaded` und sendet ausschliesslich v2-Befehle. Die
+alten v1-Namen werden nicht mehr benutzt — damit koennen die Aliase im
+Server weg (naechster Schritt).
+
+**Eine Fader-Komponente** (`makeFader`) fuer Presets, Programmer, Zoom,
+Dimmer und Empfindlichkeit statt vier fast gleicher Implementierungen;
+dazu `makeHFader` fuer den liegenden Grandmaster. Wichtigste Eigenschaft:
+solange ein Finger auf dem Fader liegt (`holding`), schreibt der
+`state`-Broadcast den Wert nicht — sonst springt der Griff unter dem
+Daumen weg.
+
+Damit sind aus Abschnitt 2/B erledigt: Verbindungsampel sichtbar,
+Blackout (2 s halten) und Grandmaster, Positionsnamen und Belegung,
+Rueckfrage vor dem Ueberschreiben, Programmer nach `channel_group`
+gruppiert mit %- und DMX-Anzeige, „Alles auf 0“, Rueckmeldung ueber
+eine Kurzmeldung statt eines versteckten `#status`.
+
+### Umgesetzte Entscheidungen
+
+| Thema | Entscheidung |
+|---|---|
+| Preset-Seiten | keine; feste Bank mit 16 Plaetzen auf `page = 1` |
+| Fahrtanzeige | nur „FAHRT LAEUFT“ aus `state.ml.fading`; Zielslot und Restzeit stehen nicht im Protokoll (bewusst offen gelassen) |
+| Origin-Anzeige | keine; es ist immer nur ein Tablet im Einsatz |
+| ML-Kanaele im Programmer | sichtbar, aber gesperrt — der Server ueberschreibt sie nachgelagert; abgeleitet aus `patch.ml_fixtures` |
+| Preset speichern | `preset.save` **ohne** `channels`, der Server friert den Programmer ein (§10.2) |
+| Position aendern | „…“-Ecke auf belegten Kacheln oeffnet `position.update` (nur Name/Fadezeit); langes Druecken bleibt `position.store` |
+
+### Verifiziert
+
+Ohne Browser-Erweiterung in dieser Umgebung getestet: das ausgelieferte
+Frontend wurde in **jsdom** geladen und mit **echten** Nachrichten des
+laufenden Backends gefuettert. Ergebnis:
+
+- Aufbau aus `patch`/`library`: 16 Preset-Plaetze (2 belegt, 14 frei),
+  9 Positionskacheln, 6 Programmer-Karten mit 24 Fadern — genau die
+  24 Kanaele ohne `fixed_value` von 37, davon die 6 ML-Kanaele gesperrt.
+- `state` angewendet: Grandmaster 100 %, Pad-Punkt auf pan 0.3 / tilt 0.7,
+  Fahrt-Chip folgt `fading`.
+- **Kein Senden ohne Bedienung:** fuenf aufeinanderfolgende `state`-Nachrichten
+  loesen 0 ausgehende Nachrichten aus (Gegenprobe zu A9).
+- Pad-Totmann: waehrend der Beruehrung laufende `ml.move`
+  (`pan_speed 0.556 / tilt_speed 0.333` bei Auslenkung), beim Loslassen
+  genau eine 0-Meldung, danach Funkstille.
+- Bedienpfade: `position.recall`, `position.update` (ohne Koordinaten),
+  `programmer.clear`, `preset.save` ohne `channels`, und `slot_occupied`
+  oeffnet die Rueckfrage.
+- Verbindungsverlust: Overlay mit Uhrzeit des letzten Stands, Bedienung
+  gesperrt. Ein *veralteter* Socket schaltet die Anzeige nicht um
+  (`ws === sock`-Wache) — im Test versehentlich mitbewiesen.
+
+Keine JS-Fehler. Das Testskript liegt bewusst nicht im Repo (B4.4:
+keine Testinfrastruktur).
+
+### Offen
+
+| # | Punkt |
+|---|---|
+| F1 | **Gamepad.** Im alten Frontend gab es Stick-/Trigger-Steuerung. Der Neubau hat sie nicht. Wird der Controller weiter benutzt, fehlt sowohl die Anbindung als auch die Anzeige „Gamepad verbunden“. |
+| ~~F2~~ | ~~`LIGHT_WS_PORT` kollidiert zwischen den Betriebsarten.~~ **erledigt 2026-09-01** – Compose leitet den veroeffentlichten Port aus derselben Variablen ab, Seite und Portfreigabe koennen nicht mehr auseinanderlaufen. 8090 ist jetzt in **beiden** Betriebsarten richtig, siehe D8. |
+| F3 | **v1-Aliase im Server entfernen.** Jetzt gefahrlos moeglich, das alte Frontend ist weg. Dazu `sendInitStateLegacy()` und der `init_state`-Zweig in `broadcastLibrary()`. |
+| F4 | Am echten Tablet noch nicht angefasst — Touchverhalten, Groessen und Lesbarkeit im abgedunkelten Raum sind ungeprueft. |

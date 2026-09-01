@@ -116,6 +116,12 @@ let artnetSocket = null;
 // Default-Pad-Sensitivität (Frontend-Skala 0.1..1.0)
 const DEFAULT_PAD_SENSITIVITY = Number(process.env.PAD_SENSITIVITY || 1.0);
 
+// Untergrenze der Pad-Empfindlichkeit. 0.05 heisst: voller Schwenk erst
+// nach dem 20-fachen der normalen Zeit - fuer feines Setzen von Hand.
+// Stand an drei Stellen einzeln auf 0.1, darunter auch beim Speichern:
+// ein kleinerer Wert waere beim Schreiben in die DB wieder hochgezogen worden.
+const PAD_SENSITIVITY_MIN = 0.05;
+
 
 /* --------------------------------------------------------
  * Globale State-Objekte
@@ -125,6 +131,17 @@ const DEFAULT_PAD_SENSITIVITY = Number(process.env.PAD_SENSITIVITY || 1.0);
 let dmxChannels = [];          // Liste aller DMX-Kanäle
 let channelById = new Map();   // channel_id -> channel-Objekt (wird beim Reload getauscht)
 let mlFixtures = [];           // Liste aller Movinglights
+let fixtures = [];             // Geraete: Dimmer, LED-Pars, Movinglights
+
+// Im Programmer ausgewaehlter Positions-Slot. Gehoert zum Programmer wie
+// die Kanalwerte und wandert beim Speichern als Verweis ins Preset.
+let programmerPosition = null;
+
+/* Kanaele, fuer die in diesem Takt tatsaechlich jemand einen Wert gesetzt
+ * hat - Preset mit Eintrag oder Programmer. Der Startwert aus fixed_value
+ * zaehlt bewusst NICHT dazu. Nur damit laesst sich beim Zoom "gesetzter
+ * Wert gewinnt, sonst Pad" entscheiden. */
+const drivenChannels = new Set();
 
 let presets = new Map();       // preset_id -> { meta, values: Map(channel_id -> max_value) }
 let mlPositions = new Map();   // button_index -> Zeile aus ml_positions
@@ -229,6 +246,9 @@ async function loadPatch() {
     const [ml] = await conn.query(
       'SELECT * FROM ml_fixtures WHERE active = 1 ORDER BY sort_order, id'
     );
+    const [fx] = await conn.query(
+      'SELECT * FROM fixtures WHERE active = 1 ORDER BY sort_order, id'
+    );
 
     const newChannelById = new Map();
     for (const ch of channels) {
@@ -238,8 +258,9 @@ async function loadPatch() {
     dmxChannels = channels;
     channelById = newChannelById;
     mlFixtures = ml;
+    fixtures = fx;
 
-    console.log(`[INIT] Loaded ${dmxChannels.length} DMX channels, ${mlFixtures.length} ML fixtures.`);
+    console.log(`[INIT] Loaded ${dmxChannels.length} DMX channels, ${fixtures.length} fixtures (davon ${mlFixtures.length} Movinglights).`);
   } finally {
     conn.release();
   }
@@ -343,11 +364,19 @@ function buildPositionList() {
   const list = [];
   for (let slot = 1; slot <= POSITION_SLOT_COUNT; slot++) {
     const pos = mlPositions.get(slot);
+    // Welche Presets auf diesen Slot verweisen. Das Frontend markiert den
+    // Slot damit und warnt vor dem Loeschen.
+    const usedBy = [];
+    for (const [id, p] of presets) {
+      if (p.meta.position_slot === slot) usedBy.push({ id, name: p.meta.name });
+    }
+
     list.push({
       slot,
       name: pos ? (pos.name ?? null) : null,
       fade_time_sec: pos ? Number(pos.fade_time_sec) : null,
-      occupied: !!pos
+      occupied: !!pos,
+      used_by: usedBy
     });
   }
   return list;
@@ -367,7 +396,7 @@ async function loadPadSettings() {
     if (rows.length) {
       const val = parseFloat(rows[0].value);
       if (!Number.isNaN(val)) {
-        padSensitivity = clamp(val, 0.1, 1.0);
+        padSensitivity = clamp(val, PAD_SENSITIVITY_MIN, 1.0);
       }
     }
     console.log(`[INIT] Pad-Sensitivität: ${padSensitivity}`);
@@ -383,7 +412,7 @@ async function loadPadSettings() {
  * Pad-Sensitivität in DB speichern.
  */
 async function savePadSensitivity(value) {
-  const v = clamp(value, 0.1, 1.0);
+  const v = clamp(value, PAD_SENSITIVITY_MIN, 1.0);
   const conn = await pool.getConnection();
   try {
     await conn.query(
@@ -415,6 +444,7 @@ function applyMaster(valueNorm, ch) {
 
 function mixSceneChannelsHTP() {
   // Für jeden Kanal: max(Beiträge aller Presets, Programmer)
+  drivenChannels.clear();
   for (const ch of dmxChannels) {
     let maxVal = 0;
 
@@ -423,14 +453,33 @@ function mixSceneChannelsHTP() {
       const level = presetFaderLevels.get(presetId) ?? 0;
       if (level <= 0) continue;
 
-      const maxValue = presetObj.values.get(ch.id) ?? 0;
-      const contribution = level * maxValue;
+      if (!presetObj.values.has(ch.id)) continue;
+      drivenChannels.add(ch.id);
+      const contribution = level * presetObj.values.get(ch.id);
       if (contribution > maxVal) maxVal = contribution;
     }
 
     // Programmer (zweiter Tab) – HTP
+    if (programmerValues.has(ch.id)) drivenChannels.add(ch.id);
     const progVal = programmerValues.get(ch.id) ?? 0;
     if (progVal > maxVal) maxVal = progVal;
+
+    // Startwert (fixed_value): gilt, solange den Kanal niemand anfasst.
+    // Frueher wurde er ganz am Ende ueber alles geschrieben - Shutter,
+    // Farbtemperatur und die Weiss-Segmente waren damit im Programmer
+    // unbedienbar. Jetzt zaehlt er wie ein weiterer HTP-Beitrag, ausser
+    // der Programmer hat fuer den Kanal einen eigenen Eintrag: dann
+    // gewinnt der, auch wenn er 0 ist (Licht ausschalten muss moeglich
+    // bleiben). `programmerValues` speichert auch die 0, deshalb ist
+    // "nicht angefasst" von "auf 0 gezogen" unterscheidbar.
+    // `drivenChannels` statt nur des Programmers: sonst gewinnt der
+    // Startwert gegen ein Preset, das den Kanal bewusst NIEDRIGER setzt
+    // (Segmente dunkler, Farbtemperatur kaelter). Genau das kam beim
+    // Playback nicht durch.
+    if (ch.fixed_value != null && !drivenChannels.has(ch.id)) {
+      const startNorm = clamp(ch.fixed_value / 255, 0, 1);
+      if (startNorm > maxVal) maxVal = startNorm;
+    }
 
     // Grandmaster/Blackout ganz am Ende der Mischkette, und nur auf
     // Intensitäten (PROTOKOLL.md §6). Pan/Tilt/Zoom/Control bleiben
@@ -476,16 +525,20 @@ function updateMlState(dt) {
 
   // 3) Joystick-Steuerung (relativ), wenn kein aktiver Fade
   if (!mlPositionFade) {
+    // padSensitivity skaliert die Geschwindigkeit: 1.0 = volle Fahrt in
+    // JOYSTICK_FULL_RANGE_SEC, 0.1 = zehnmal langsamer fuer feines Setzen.
+    // Der Wert wurde bisher geladen, gespeichert und gesendet, aber nirgends
+    // angewendet - der Fader im Frontend war damit wirkungslos.
+    const speedScale = padSensitivity / JOYSTICK_FULL_RANGE_SEC;
+
     // Pan
     if (Math.abs(mlPanSpeed) > JOYSTICK_DEADZONE) {
-      const deltaPan = (mlPanSpeed * dt) / JOYSTICK_FULL_RANGE_SEC;
-      mlState.pan = clamp(mlState.pan + deltaPan, 0, 1);
+      mlState.pan = clamp(mlState.pan + mlPanSpeed * dt * speedScale, 0, 1);
     }
 
     // Tilt
     if (Math.abs(mlTiltSpeed) > JOYSTICK_DEADZONE) {
-      const deltaTilt = (mlTiltSpeed * dt) / JOYSTICK_FULL_RANGE_SEC;
-      mlState.tilt = clamp(mlState.tilt + deltaTilt, 0, 1);
+      mlState.tilt = clamp(mlState.tilt + mlTiltSpeed * dt * speedScale, 0, 1);
     }
   }
 
@@ -831,7 +884,13 @@ function buildDmxUniverses() {
     set16bit(tiltChannel, tiltFineChannel, tiltNorm);
 
     if (zoomChannel) {
-      set8bit(zoomChannel, mlState.zoom, false);
+      // Steht im Programmer oder in einem hochgezogenen Preset ein
+      // Zoomwert, gilt der. Sonst fuehrt das Live-Pad.
+      if (drivenChannels.has(zoomChannel.id)) {
+        set8bit(zoomChannel, outputChannels.get(zoomChannel.id) ?? 0, false);
+      } else {
+        set8bit(zoomChannel, mlState.zoom, false);
+      }
     }
 
     if (dimmerChannel) {
@@ -842,19 +901,9 @@ function buildDmxUniverses() {
     }
   }
   
-  // 3) Konstant zu haltende Fixture-Kanäle (Shutter, Fixture-Mode, ...)
-  // Kommt aus dmx_channels.fixed_value und überschreibt alles davor.
-  // Früher war hier eine feste ID-Liste [33..39] verdrahtet.
-  for (const ch of dmxChannels) {
-    if (ch.fixed_value == null) continue;
-
-    const uni = ch.universe ?? ARTNET_UNIVERSE_DEFAULT;
-    const arr = getUniverseArray(uni);
-
-    if (ch.dmx_address >= 1 && ch.dmx_address <= DMX_UNIVERSE_SIZE) {
-      arr[ch.dmx_address - 1] = clamp(Math.round(ch.fixed_value), 0, 255);
-    }
-  }
+  // Der frueher hier stehende Schritt 3 (fixed_value ueber alles schreiben)
+  // ist entfallen: fixed_value geht jetzt als Startwert in die HTP-Mischung
+  // ein (siehe mixSceneChannelsHTP) und bleibt damit ueberschreibbar.
 
   return universes;
 }
@@ -1032,6 +1081,23 @@ function applyMlMove(panSpeed, tiltSpeed) {
  * Der Interpolationscode in updateMlState() war immer vorhanden, wurde
  * aber nie ausgelöst, weil beide Recall-Handler hart gesetzt haben.
  */
+/**
+ * Positions-Slot aus dem Cache anfahren, ohne Datenbankzugriff.
+ * Gebraucht von preset.fader und programmer.position - beide duerfen den
+ * 40-Hz-Takt nicht auf eine Abfrage warten lassen.
+ */
+function recallSlot(slot) {
+  const pos = mlPositions.get(slot);
+  if (!pos) return false;
+  startPositionFade(
+    clamp(Number(pos.pan_norm), 0, 1),
+    clamp(Number(pos.tilt_norm), 0, 1),
+    clamp(Number(pos.zoom_norm), 0, 1),
+    Number(pos.fade_time_sec) || 0
+  );
+  return true;
+}
+
 function startPositionFade(targetPan, targetTilt, targetZoom, fadeSec) {
   if (!(fadeSec > 0)) {
     mlPositionFade = null;
@@ -1059,8 +1125,9 @@ function startPositionFade(targetPan, targetTilt, targetZoom, fadeSec) {
 const STATE_MUTATING_TYPES = new Set([
   // v2
   'ml.move', 'ml.goto', 'ml.zoom', 'ml.dimmer',
-  'preset.fader', 'preset.save', 'preset.delete',
-  'programmer.channel', 'programmer.clear',
+  'preset.fader', 'preset.save', 'preset.delete', 'preset.update',
+  'programmer.channel', 'programmer.clear', 'programmer.load_preset',
+  'programmer.position',
   'position.store', 'position.recall', 'position.delete', 'position.update',
   'settings.pad_sensitivity',
   'master.grandmaster', 'master.blackout', 'system.reload',
@@ -1103,6 +1170,7 @@ function buildStateMessage(origin) {
     master: { grandmaster, blackout },
     preset_levels: presetLevels,
     programmer,
+    programmer_position: programmerPosition,
     pad_sensitivity: padSensitivity
   };
 }
@@ -1120,6 +1188,205 @@ function stateTick() {
   stateDirty = false;
   stateOrigin = null;
   lastStateSentTs = now;
+}
+
+/* --------------------------------------------------------
+ * Patch-Editor (PROTOKOLL.md §3.8)
+ *
+ * Der Server kennt die Bauarten als Vorlage und legt die Kanaele selbst an.
+ * Der Client gibt nur Name, Bauart, Universe und Startadresse vor.
+ *
+ * Wichtig fuer die Presets: sie zeigen auf Kanal-IDs.
+ *   - Adresse, Name oder Universe aendern  -> IDs bleiben, Presets bleiben.
+ *   - Bauart aendern oder Fixture loeschen -> Kanaele werden neu angelegt,
+ *     `light_preset_values` haengt mit ON DELETE CASCADE daran und verliert
+ *     die Werte dieser Kanaele. Das Frontend warnt vorher.
+ * ------------------------------------------------------*/
+
+const FIXTURE_TYPES = {
+  dimmer: {
+    label: 'Dimmer', group: 'dimmer',
+    channels: [{ role: 'dimmer', label: 'Dimmer', intensity: true }]
+  },
+  dimmer_shutter: {
+    label: 'Dimmer + Shutter', group: 'dimmer',
+    channels: [
+      { role: 'dimmer', label: 'Dimmer', intensity: true },
+      { role: 'shutter', label: 'Shutter', fixed: 255 }
+    ]
+  },
+  rgbw: {
+    label: 'LED RGBW', group: 'led',
+    channels: [
+      { role: 'r', label: 'Rot',   intensity: true },
+      { role: 'g', label: 'Gruen', intensity: true },
+      { role: 'b', label: 'Blau',  intensity: true },
+      { role: 'w', label: 'Weiss', intensity: true }
+    ]
+  },
+  rgbaw: {
+    label: 'LED RGBAW', group: 'led',
+    channels: [
+      { role: 'r', label: 'Rot',   intensity: true },
+      { role: 'g', label: 'Gruen', intensity: true },
+      { role: 'b', label: 'Blau',  intensity: true },
+      { role: 'a', label: 'Amber', intensity: true },
+      { role: 'w', label: 'Weiss', intensity: true }
+    ]
+  },
+  moving_head: {
+    label: 'Hero Wash 300 TW', group: 'ml',
+    channels: [
+      { role: 'pan',         label: 'Pan' },
+      { role: 'pan_fine',    label: 'Pan Fine' },
+      { role: 'tilt',        label: 'Tilt' },
+      { role: 'tilt_fine',   label: 'Tilt Fine' },
+      { role: 'pt_speed',    label: 'P/T Speed', fixed: 0 },
+      { role: 'zoom',        label: 'Zoom' },
+      { role: 'dimmer',      label: 'Dimmer', intensity: true },
+      { role: 'strobe',      label: 'Stroboskop', fixed: 255 },
+      { role: 'cw1',         label: 'Kaltweiss 1', fixed: 255, intensity: true },
+      { role: 'ww1',         label: 'Warmweiss 1', fixed: 255, intensity: true },
+      { role: 'cw2',         label: 'Kaltweiss 2', fixed: 255, intensity: true },
+      { role: 'ww2',         label: 'Warmweiss 2', fixed: 255, intensity: true },
+      { role: 'cw3',         label: 'Kaltweiss 3', fixed: 255, intensity: true },
+      { role: 'ww3',         label: 'Warmweiss 3', fixed: 255, intensity: true },
+      { role: 'ctc',         label: 'Farbtemperatur', fixed: 128 },
+      { role: 'seg_pattern', label: 'Segment-Muster', fixed: 0 },
+      { role: 'seg_fade',    label: 'Muster-Uebergang', fixed: 0 },
+      { role: 'zoom_auto',   label: 'Zoom-Automatik', fixed: 0 },
+      { role: 'pt_auto',     label: 'P/T-Automatik', fixed: 0 }
+    ]
+  }
+};
+
+function typeList() {
+  return Object.entries(FIXTURE_TYPES).map(([key, t]) => ({
+    type: key, label: t.label, channel_count: t.channels.length
+  }));
+}
+
+/** Kanaele eines Fixtures aus der Vorlage anlegen. */
+async function createChannelsFor(conn, fixtureId, name, type, universe, startAddress) {
+  const tpl = FIXTURE_TYPES[type];
+  const ids = [];
+  for (let i = 0; i < tpl.channels.length; i++) {
+    const c = tpl.channels[i];
+    const [res] = await conn.query(
+      'INSERT INTO dmx_channels (name, universe, dmx_address, channel_group, fixture_id, role, sort_order, fixed_value, is_intensity) ' +
+      'VALUES (?,?,?,?,?,?,?,?,?)',
+      [name + ' ' + c.label, universe, startAddress + i, tpl.group, fixtureId, c.role,
+       startAddress * 10 + i, c.fixed ?? null, c.intensity ? 1 : 0]
+    );
+    ids.push({ role: c.role, id: res.insertId });
+  }
+
+  // Movinglight zusaetzlich in ml_fixtures verdrahten.
+  if (type === 'moving_head') {
+    const byRole = Object.fromEntries(ids.map(x => [x.role, x.id]));
+    await conn.query(
+      'INSERT INTO ml_fixtures (name, pan_channel_id, pan_fine_channel_id, tilt_channel_id, ' +
+      'tilt_fine_channel_id, zoom_channel_id, dimmer_channel_id, pan_invert, tilt_invert, active, sort_order) ' +
+      'VALUES (?,?,?,?,?,?,?,1,0,1,10)',
+      [name, byRole.pan, byRole.pan_fine, byRole.tilt, byRole.tilt_fine, byRole.zoom, byRole.dimmer]
+    );
+  }
+  return ids;
+}
+
+/** Kanaele eines Fixtures entfernen. ml_fixtures zuerst (Fremdschluessel RESTRICT). */
+async function dropChannelsFor(conn, fixtureId) {
+  const [chans] = await conn.query('SELECT id FROM dmx_channels WHERE fixture_id = ?', [fixtureId]);
+  if (!chans.length) return;
+  const ids = chans.map(c => c.id);
+  await conn.query('DELETE FROM ml_fixtures WHERE pan_channel_id IN (?)', [ids]);
+  // light_preset_values haengt mit ON DELETE CASCADE dran.
+  await conn.query('DELETE FROM dmx_channels WHERE fixture_id = ?', [fixtureId]);
+}
+
+async function handlePatchFixture(ws, msg) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    if (msg.type === 'patch.fixture.delete') {
+      if (msg.id == null) throw new Error('id fehlt');
+      await dropChannelsFor(conn, msg.id);
+      await conn.query('DELETE FROM fixtures WHERE id = ?', [msg.id]);
+
+    } else if (msg.type === 'patch.fixture.create') {
+      const t = msg.fixture_type;
+      if (!FIXTURE_TYPES[t]) throw new Error('Unbekannte Bauart: ' + t);
+      const name = String(msg.name || FIXTURE_TYPES[t].label).trim();
+      const universe = Number(msg.universe ?? ARTNET_UNIVERSE_DEFAULT);
+      const start = Number(msg.start_address);
+      if (!(start >= 1 && start <= DMX_UNIVERSE_SIZE)) throw new Error('Startadresse ausserhalb 1-512');
+
+      const [res] = await conn.query(
+        'INSERT INTO fixtures (name, fixture_type, universe, start_address, sort_order, active) VALUES (?,?,?,?,?,1)',
+        [name, t, universe, start, start]
+      );
+      await createChannelsFor(conn, res.insertId, name, t, universe, start);
+
+    } else {
+      const [rows] = await conn.query('SELECT * FROM fixtures WHERE id = ?', [msg.id]);
+      if (!rows.length) throw new Error('Fixture ' + msg.id + ' gibt es nicht');
+      const alt = rows[0];
+
+      const name     = String(msg.name ?? alt.name).trim();
+      const universe = Number(msg.universe ?? alt.universe);
+      const start    = Number(msg.start_address ?? alt.start_address);
+      const t        = msg.fixture_type ?? alt.fixture_type;
+      if (!FIXTURE_TYPES[t]) throw new Error('Unbekannte Bauart: ' + t);
+      if (!(start >= 1 && start <= DMX_UNIVERSE_SIZE)) throw new Error('Startadresse ausserhalb 1-512');
+
+      await conn.query(
+        'UPDATE fixtures SET name = ?, fixture_type = ?, universe = ?, start_address = ?, sort_order = ? WHERE id = ?',
+        [name, t, universe, start, start, msg.id]
+      );
+
+      if (t !== alt.fixture_type) {
+        // Bauart gewechselt: Kanaele passen nicht mehr, also neu anlegen.
+        await dropChannelsFor(conn, msg.id);
+        await createChannelsFor(conn, msg.id, name, t, universe, start);
+      } else {
+        // Nur verschoben oder umbenannt: IDs behalten, damit Presets und
+        // die ml_fixtures-Verdrahtung erhalten bleiben.
+        const tpl = FIXTURE_TYPES[t];
+        const [chans] = await conn.query(
+          'SELECT id, role FROM dmx_channels WHERE fixture_id = ? ORDER BY dmx_address', [msg.id]
+        );
+        for (const c of chans) {
+          const i = tpl.channels.findIndex(x => x.role === c.role);
+          if (i < 0) continue;
+          await conn.query(
+            'UPDATE dmx_channels SET name = ?, universe = ?, dmx_address = ?, sort_order = ? WHERE id = ?',
+            [name + ' ' + tpl.channels[i].label, universe, start + i, start * 10 + i, c.id]
+          );
+        }
+        if (t === 'moving_head') {
+          await conn.query(
+            'UPDATE ml_fixtures SET name = ? WHERE pan_channel_id IN (SELECT id FROM (SELECT id FROM dmx_channels WHERE fixture_id = ?) x)',
+            [name, msg.id]
+          );
+        }
+      }
+    }
+
+    await conn.commit();
+    await loadPatch();
+    await loadPresets();
+    broadcast(buildPatchMessage());
+    broadcastLibrary();
+    console.log('[PATCH] ' + msg.type + ' ausgefuehrt.');
+  } catch (err) {
+    await conn.rollback();
+    console.error('[PATCH] Fehlgeschlagen:', err.message);
+    ws.send(JSON.stringify({ type: 'error', code: 'patch_failed',
+      ref: msg.type, message: 'Patch konnte nicht geaendert werden: ' + err.message }));
+  } finally {
+    conn.release();
+  }
 }
 
 /* --------------------------------------------------------
@@ -1203,7 +1470,7 @@ async function handleClientMessage(ws, msg) {
     case 'ml_sensitivity':                     // v1-Name
       // { type: 'ml_sensitivity', value }
       if (typeof msg.value === 'number') {
-        const val = clamp(msg.value, 0.1, 1.0);
+        const val = clamp(msg.value, PAD_SENSITIVITY_MIN, 1.0);
         padSensitivity = val;
         await savePadSensitivity(val);
         // optional: an alle Clients broadcasten
@@ -1217,7 +1484,21 @@ async function handleClientMessage(ws, msg) {
       if (msg.preset_id == null) return;
       // v2 nennt das Feld `level`, v1 `value`.
       const lvl = typeof msg.level === 'number' ? msg.level : msg.value;
-      presetFaderLevels.set(msg.preset_id, clamp(lvl ?? 0, 0, 1));
+      const neu = clamp(lvl ?? 0, 0, 1);
+      const alt = presetFaderLevels.get(msg.preset_id) ?? 0;
+      presetFaderLevels.set(msg.preset_id, neu);
+
+      // Verweist das Preset auf einen Positions-Slot, faehrt der Kopf ihn
+      // beim Aufziehen an - einmalig beim Uebergang von 0 auf mehr, nicht
+      // bei jeder Faderbewegung. Eine Position ist nicht dimmbar, sie wird
+      // ausgeloest (PROTOKOLL.md §3.3).
+      const preset = presets.get(msg.preset_id);
+      const slot = preset?.meta?.position_slot;
+      if (slot != null && alt === 0 && neu > 0) {
+        if (recallSlot(slot)) {
+          console.log(`[PRESET] ${preset.meta.name}: faehrt Position ${slot} an.`);
+        }
+      }
       break;
     }
 
@@ -1237,10 +1518,25 @@ async function handleClientMessage(ws, msg) {
       programmerValues.set(msg.channel_id, clamp(msg.value ?? 0, 0, 1));
       break;
 
+    // Position im Programmer waehlen (PROTOKOLL.md §3.4). Der Kopf faehrt
+    // sie gleich an, damit man sieht, was man speichern wird.
+    case 'programmer.position': {
+      const slot = msg.slot == null ? null : Number(msg.slot);
+      if (slot !== null && !mlPositions.has(slot)) {
+        ws.send(JSON.stringify({ type: 'error', code: 'not_found',
+          ref: 'programmer.position', message: `Slot ${slot} ist nicht belegt.` }));
+        return;
+      }
+      programmerPosition = slot;
+      if (slot !== null) recallSlot(slot);
+      break;
+    }
+
     case 'programmer.clear':
       // Ohne diesen Weg blieb ein einmal gesetzter Wert bis zum Neustart
       // stehen - es gab schlicht keine Moeglichkeit, auf 0 zurueckzukommen.
       programmerValues.clear();
+      programmerPosition = null;
       console.log('[PROGRAMMER] Alle Werte geleert.');
       break;
 
@@ -1262,6 +1558,20 @@ async function handleClientMessage(ws, msg) {
 
     case 'position.update':
       await handlePositionUpdate(ws, msg);
+      break;
+
+    case 'patch.fixture.create':
+    case 'patch.fixture.update':
+    case 'patch.fixture.delete':
+      await handlePatchFixture(ws, msg);
+      break;
+
+    case 'preset.update':
+      await handlePresetUpdate(ws, msg);
+      break;
+
+    case 'programmer.load_preset':
+      handleProgrammerLoadPreset(ws, msg);
       break;
 
     default:
@@ -1315,6 +1625,9 @@ async function handlePositionDelete(ws, msg) {
 
   const conn = await pool.getConnection();
   try {
+    // Verweise aus Presets loesen, damit kein Preset auf einen leeren
+    // Slot zeigt. Das Frontend warnt vorher, welche betroffen sind.
+    await conn.query('UPDATE light_presets SET position_slot = NULL WHERE position_slot = ?', [slot]);
     const [res] = await conn.query('DELETE FROM ml_positions WHERE button_index = ?', [slot]);
     if (!res.affectedRows) {
       ws.send(JSON.stringify({ type: 'error', code: 'not_found',
@@ -1322,6 +1635,7 @@ async function handlePositionDelete(ws, msg) {
       return;
     }
     await loadPositions();
+    await loadPresets();      // position_slot kann sich geaendert haben
     console.log(`[ML] Position Slot ${slot} geloescht.`);
     broadcastLibrary();
   } catch (err) {
@@ -1396,6 +1710,71 @@ async function handlePositionUpdate(ws, msg) {
 }
 
 /**
+ * Preset umbenennen, ohne die gespeicherten Kanalwerte anzufassen
+ * (PROTOKOLL.md §3.3).
+ *
+ * Warum ein eigener Befehl: `preset.save` mit `preset_id` loescht die
+ * bestehenden `light_preset_values` und schreibt sie neu - entweder aus
+ * `channels` oder aus dem Programmer. Ein blosses Umbenennen ueber
+ * `preset.save` wuerde den Inhalt des Presets also mit dem aktuellen
+ * Programmer ueberschreiben. Dieselbe Trennung wie bei position.update.
+ */
+async function handlePresetUpdate(ws, msg) {
+  const id = msg.preset_id;
+  const name = typeof msg.name === 'string' ? msg.name.trim() : '';
+  if (id == null || name === '') {
+    ws.send(JSON.stringify({ type: 'error', code: 'bad_request',
+      ref: 'preset.update', message: 'preset_id oder name fehlt.' }));
+    return;
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [res] = await conn.query(
+      'UPDATE light_presets SET name = ? WHERE id = ? AND active = 1',
+      [name, id]
+    );
+    if (!res.affectedRows) {
+      ws.send(JSON.stringify({ type: 'error', code: 'not_found',
+        ref: 'preset.update', message: `Preset ${id} gibt es nicht.` }));
+      return;
+    }
+    await loadPresets();
+    console.log(`[PRESET] Preset ${id} umbenannt in "${name}".`);
+    broadcastLibrary();
+  } catch (err) {
+    console.error('[PRESET] Fehler beim Umbenennen:', err);
+    ws.send(JSON.stringify({ type: 'error', code: 'update_failed',
+      ref: 'preset.update', message: 'Preset konnte nicht umbenannt werden.' }));
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Ein Preset zum Bearbeiten in den Programmer holen (PROTOKOLL.md §3.4).
+ * Der Programmer wird dabei ersetzt, nicht ergaenzt - sonst mischt sich der
+ * vorherige Stand unbemerkt in das Preset, das gleich zurueckgespeichert wird.
+ * Die Werte liegen serverseitig schon normiert vor; der Client bekommt sie
+ * ueber den naechsten state-Broadcast und muss nichts nachladen.
+ */
+function handleProgrammerLoadPreset(ws, msg) {
+  const preset = presets.get(msg.preset_id);
+  if (!preset) {
+    ws.send(JSON.stringify({ type: 'error', code: 'not_found',
+      ref: 'programmer.load_preset', message: `Preset ${msg.preset_id} gibt es nicht.` }));
+    return;
+  }
+  programmerValues.clear();
+  for (const [channelId, value] of preset.values) {
+    programmerValues.set(channelId, value);   // auch 0: siehe handleSavePreset
+  }
+  programmerPosition = preset.meta.position_slot ?? null;
+  if (programmerPosition != null) recallSlot(programmerPosition);
+  console.log(`[PROG] Preset ${msg.preset_id} in den Programmer geladen (${programmerValues.size} Kanaele).`);
+}
+
+/**
  * Presets und Positionen an alle Clients verteilen (PROTOKOLL.md §4.2).
  * Das alte Frontend kennt `library` noch nicht und bekommt daneben sein
  * init_state — faellt mit dem Frontend-Neubau weg.
@@ -1425,6 +1804,11 @@ async function handleSavePreset(ws, msg) {
     const name = msg.name || 'Preset';
     const page = msg.page || 1;
     const faderIndex = msg.fader_index || 1;
+    // Position als Verweis auf einen Slot. Ohne Angabe uebernimmt das
+    // Preset die im Programmer gewaehlte Position - analog zu den Kanaelen.
+    const positionSlot = (msg.position_slot !== undefined)
+      ? (msg.position_slot === null ? null : Number(msg.position_slot))
+      : (Array.isArray(msg.channels) ? null : programmerPosition);
 
     if (!presetId) {
       // Belegten Slot nicht stillschweigend ueberschreiben (PROTOKOLL.md §3.3).
@@ -1447,14 +1831,14 @@ async function handleSavePreset(ws, msg) {
       }
 
       const [res] = await conn.query(
-        'INSERT INTO light_presets (name, page, fader_index, active) VALUES (?, ?, ?, 1)',
-        [name, page, faderIndex]
+        'INSERT INTO light_presets (name, page, fader_index, position_slot, active) VALUES (?, ?, ?, ?, 1)',
+        [name, page, faderIndex, positionSlot]
       );
       presetId = res.insertId;
     } else {
       await conn.query(
-        'UPDATE light_presets SET name = ?, page = ?, fader_index = ? WHERE id = ?',
-        [name, page, faderIndex, presetId]
+        'UPDATE light_presets SET name = ?, page = ?, fader_index = ?, position_slot = ? WHERE id = ?',
+        [name, page, faderIndex, positionSlot, presetId]
       );
       await conn.query(
         'DELETE FROM light_preset_values WHERE preset_id = ?',
@@ -1480,11 +1864,13 @@ async function handleSavePreset(ws, msg) {
         ]);
       source = 'channels';
     } else {
-      // Nur Kanaele ungleich 0 — ein Preset aus lauter Nullen waere leer,
-      // aber nicht leer gespeichert.
+      // Alles uebernehmen, was im Programmer angefasst wurde - auch die 0.
+      // Seit fixed_value ein Startwert ist, bedeutet eine gespeicherte 0
+      // "dieser Kanal bleibt aus" und ist damit eine echte Aussage. Wuerde
+      // sie weggelassen, kaeme beim Playback der Startwert zurueck.
       values = [];
       for (const [channelId, val] of programmerValues) {
-        if (val > 0) values.push([presetId, channelId, clamp(val, 0, 1)]);
+        values.push([presetId, channelId, clamp(val, 0, 1)]);
       }
       source = 'programmer';
     }
@@ -1497,6 +1883,16 @@ async function handleSavePreset(ws, msg) {
     }
 
     await conn.commit();
+
+    // Kam der Inhalt aus dem Programmer, ist er mit dem Speichern verbraucht:
+    // der Look steht jetzt im Preset und liegt sonst doppelt uebereinander.
+    // Das macht der Server, nicht der Client - schickte der Client ein
+    // eigenes programmer.clear hinterher, koennte es waehrend des noch
+    // laufenden Datenbankschreibens greifen und ein leeres Preset erzeugen.
+    if (source === 'programmer') {
+      programmerValues.clear();
+      programmerPosition = null;
+    }
 
     await loadPresets();
 
@@ -1653,7 +2049,8 @@ function buildPresetList() {
       id,
       name: p.meta.name,
       page: p.meta.page,
-      fader_index: p.meta.fader_index
+      fader_index: p.meta.fader_index,
+      position_slot: p.meta.position_slot ?? null
     });
   }
   return list;
@@ -1666,6 +2063,8 @@ function buildChannelList() {
     universe: ch.universe ?? ARTNET_UNIVERSE_DEFAULT,
     dmx_address: ch.dmx_address,
     channel_group: ch.channel_group ?? null,
+    fixture_id: ch.fixture_id ?? null,
+    role: ch.role ?? null,
     fixed_value: ch.fixed_value ?? null,
     is_intensity: !!ch.is_intensity
   }));
@@ -1675,6 +2074,15 @@ function buildChannelList() {
 function buildPatchMessage() {
   return {
     type: 'patch',
+    fixture_types: typeList(),
+    fixtures: fixtures.map(f => ({
+      id: f.id,
+      name: f.name,
+      type: f.fixture_type,
+      universe: f.universe ?? ARTNET_UNIVERSE_DEFAULT,
+      start_address: f.start_address,
+      channel_count: (FIXTURE_TYPES[f.fixture_type]?.channels.length) ?? 0
+    })),
     channels: buildChannelList(),
     ml_fixtures: mlFixtures.map(ml => ({
       id: ml.id,

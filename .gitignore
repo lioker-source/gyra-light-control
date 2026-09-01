@@ -21,3 +21,8 @@ pids/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Design-Canvas: erzeugte Ausgabe, wird aus design/build.mjs neu gebaut
+design/atrium-light-pult.html
+design/live-v2/
+.env.bak
