@@ -1,6 +1,6 @@
 # Atrium Light – Analyse Ist-Stand & Ziele
 
-Stand: 2026-08-29 · Basis: `frontend/index.php` (1940 Z.), `backend/server.js` (1111 Z.), `database/schema.sql`
+Stand: 2026-09-01 · Basis: `frontend/index.php` (1940 Z.), `backend/server.js` (1764 Z.), `database/schema.sql`
 
 Die Befunde in Abschnitt 2 sind am 2026-08-29 einzeln gegen den aktuellen
 Code geprüft und tragen jeweils einen Status.
@@ -207,8 +207,8 @@ enthält nur, was am **Backend** zu tun ist. Reihenfolge = Vorschlag.
 
 ### B2 · Protokoll — Voraussetzung für das neue Frontend
 
-> **Entwurf liegt vor: `PROTOKOLL.md` (v2).** Deckt B2.1-B2.8 ab und benennt
-> vier offene Entscheidungen. Noch nicht implementiert.
+> **`PROTOKOLL.md` (v2) ist serverseitig vollständig umgesetzt.** B2.1-B2.10
+> sind erledigt, die vier Entscheidungen in §10 sind alle getroffen.
 
 Diese Punkte zuerst festlegen, sonst baut das neue Frontend gegen ein Protokoll,
 das gleich wieder geändert wird.
@@ -230,9 +230,18 @@ das gleich wieder geändert wird.
 > A6 zugrunde lag. Beide rufen jetzt `broadcastLibrary()`. Verifiziert mit
 > zwei Clients: B sieht Anlegen, Speichern und Löschen, ohne selbst zu senden.
 >
-> **Noch offen aus `PROTOKOLL.md` §2:** die Verbindungssequenz
-> `hello` + `patch` + `library` + `state`. Der Server schickt weiterhin
-> `init_state`. Gehört zum Frontend-Neubau.
+| B2.9 | ~~Verbindungssequenz §2 (`hello` + `patch` + `library` + `state`).~~ **erledigt 2026-09-01** – `sendHandshake()` schickt die vier Nachrichten in dieser Reihenfolge; `state` geht dabei sofort raus statt auf den nächsten Takt zu warten, sonst sähe ein neuer Client bis zu `STATE_KEEPALIVE_MS` lang nichts. Neu: `buildPatchMessage()` (mit `is_intensity` und den Invert-Flags aus B1.2), `buildLibraryMessage()`, `buildPresetList()`, `buildChannelList()`. `broadcastLibrary()` verteilt jetzt ein schlankes `library` statt eines kompletten `init_state` an alle. **Dabei mitgefixt:** `system.reload` schickte nur die Bibliothek neu — ein Reload kann aber genauso den Patch geändert haben, deshalb geht jetzt `patch` **und** `library` raus. Verifiziert: Reihenfolge `hello → patch → library → state`, `protocol: 2`, 37 Kanäle, 1 ML-Fixture mit `pan_invert: true`, 9 Positionsslots inkl. leerer; mit zwei Clients sieht B ein `library` nach `preset.save` und `preset.delete` des Clients A, und nach `system.reload` bekommen beide `reloaded → patch → library`. | `server.js:1550-1660, 962, 1331` |
+
+> **Übergangslösung:** `sendInitState()` heißt jetzt `sendInitStateLegacy()`
+> und wird neben der v2-Sequenz weiter an jeden Client geschickt — sonst wäre
+> das bestehende v1-Frontend sofort tot. Fällt zusammen mit den v1-Aliasen
+> weg, sobald das neue Frontend steht.
+
+### B2 · Nachtrag: offene Protokoll-Entscheidungen (§10)
+
+| # | Aufgabe | Ort |
+|---|---|---|
+| B2.10 | ~~Die vier offenen Entscheidungen aus `PROTOKOLL.md` §10 klären.~~ **erledigt 2026-09-01** – (1) *Grandmaster auf den ML-Dimmer:* ja, bleibt wie gebaut — ein Blackout, der den Wash anlässt, wäre im Live-Betrieb eine böse Überraschung; kein Code betroffen. (2) *Preset-Quelle:* `channels` bleibt der explizite Normalfall, **fehlt es, friert der Server den Programmer ein** (Werte = 0 fallen raus). Verifiziert: Programmer 3→0.75 / 5→0.25, `preset.save` ohne `channels`, danach in der DB genau diese beiden Zeilen; `programmer.clear` + Fader auf 100 % lässt das Preset stehen. (3) *`position.store` ohne Koordinaten:* bleibt, dazu neu **`position.update`** für Name und Fadezeit — vorher liess sich ein Slot weder umbenennen noch seine Fadezeit korrigieren, ohne den Kopf dorthin zu fahren und die Position zu überschreiben. Verifiziert: Umbenennen von „Original“ auf „Umbenannt“ mit 2.0→5.5 s, anschliessender Recall trifft weiterhin pan 0.300 / tilt 0.700; leerer Slot → `not_found`, kein Feld gesetzt → `bad_request`. (4) *Authentifizierung:* bewusst keine, wie am 2026-08-29 entschieden (B3.4). | `server.js:1380, 1345` |
 
 ### B3 · Robustheit & Betrieb
 

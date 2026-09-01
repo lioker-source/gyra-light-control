@@ -138,6 +138,10 @@ const DEFAULT_POSITION_FADE_SEC = Number(process.env.POSITION_FADE_SEC || 1.0);
 
 // Takt des Zustands-Broadcasts an alle Clients (PROTOKOLL.md §4.3, §7).
 const STATE_HZ = Number(process.env.STATE_HZ || 10);
+
+// Protokollversion (PROTOKOLL.md §2). Passt sie beim Client nicht,
+// schliesst er die Verbindung selbst.
+const PROTOCOL_VERSION = 2;
 // Auch ohne Änderung mindestens so oft senden - dient zugleich als Lebenszeichen.
 const STATE_KEEPALIVE_MS = Number(process.env.STATE_KEEPALIVE_MS || 1000);
 
@@ -959,7 +963,7 @@ function setupWebSocketServer() {
     // geladen; ein Reconnect-Storm erzeugte damit DB-Last. Aenderungen
     // an der Konfiguration kommen jetzt ueber reloadAll() herein
     // (SIGHUP oder system.reload, B3.3).
-    sendInitState(ws);
+    sendHandshake(ws);
   });
 }
 
@@ -1057,7 +1061,7 @@ const STATE_MUTATING_TYPES = new Set([
   'ml.move', 'ml.goto', 'ml.zoom', 'ml.dimmer',
   'preset.fader', 'preset.save', 'preset.delete',
   'programmer.channel', 'programmer.clear',
-  'position.store', 'position.recall', 'position.delete',
+  'position.store', 'position.recall', 'position.delete', 'position.update',
   'settings.pad_sensitivity',
   'master.grandmaster', 'master.blackout', 'system.reload',
   // v1, bis das neue Frontend steht
@@ -1167,9 +1171,10 @@ async function handleClientMessage(ws, msg) {
       const ok = await reloadAll(`WS ${ws.clientId}`);
       if (ok) {
         broadcast({ type: 'reloaded' });
-        for (const client of wss.clients) {
-          if (client.readyState === WebSocket.OPEN) sendInitState(client);
-        }
+        // Der Reload kann auch den Patch veraendert haben, nicht nur die
+        // Bibliothek — deshalb beides neu verteilen.
+        broadcast(buildPatchMessage());
+        broadcastLibrary();
       } else {
         ws.send(JSON.stringify({
           type: 'error', code: 'reload_failed', ref: 'system.reload',
@@ -1255,6 +1260,10 @@ async function handleClientMessage(ws, msg) {
       await handlePositionDelete(ws, msg);
       break;
 
+    case 'position.update':
+      await handlePositionUpdate(ws, msg);
+      break;
+
     default:
       console.warn('[WS] Unbekannter Nachrichtentyp:', msg.type);
   }
@@ -1325,13 +1334,79 @@ async function handlePositionDelete(ws, msg) {
 }
 
 /**
- * Presets und Positionen an alle Clients verteilen. Bis das neue Frontend
- * steht, geht dafuer das vollstaendige init_state raus (PROTOKOLL.md §4.2).
+ * Metadaten eines Positionsslots aendern, ohne die Koordinaten anzufassen
+ * (PROTOKOLL.md §3.5, Entscheidung §10.3).
+ *
+ * `position.store` speichert bewusst immer den aktuellen mlState — damit
+ * liesse sich ein Slot aber nicht umbenennen und keine Fadezeit korrigieren,
+ * ohne den Kopf vorher dorthin zu fahren und die Position zu ueberschreiben.
+ * Genau diese Luecke schliesst `position.update`. Pan/Tilt/Zoom bleiben
+ * unberuehrt; Koordinaten kommen weiterhin ausschliesslich aus dem
+ * Serverzustand.
+ */
+async function handlePositionUpdate(ws, msg) {
+  const slot = msg.slot;
+  if (slot == null) {
+    ws.send(JSON.stringify({ type: 'error', code: 'bad_request',
+      ref: 'position.update', message: 'slot fehlt.' }));
+    return;
+  }
+
+  const fields = [];
+  const params = [];
+
+  if (typeof msg.name === 'string' && msg.name.trim() !== '') {
+    fields.push('name = ?');
+    params.push(msg.name.trim());
+  }
+  if (typeof msg.fade_time_sec === 'number' && msg.fade_time_sec >= 0) {
+    fields.push('fade_time_sec = ?');
+    params.push(clamp(msg.fade_time_sec, 0, 60));
+  }
+
+  if (!fields.length) {
+    ws.send(JSON.stringify({ type: 'error', code: 'bad_request',
+      ref: 'position.update', message: 'Weder name noch fade_time_sec angegeben.' }));
+    return;
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    // Nur belegte Slots: sonst entstuende hier eine Position ohne Koordinaten.
+    const [res] = await conn.query(
+      `UPDATE ml_positions SET ${fields.join(', ')} WHERE button_index = ? AND active = 1`,
+      [...params, slot]
+    );
+    if (!res.affectedRows) {
+      ws.send(JSON.stringify({ type: 'error', code: 'not_found',
+        ref: 'position.update',
+        message: `Slot ${slot} ist nicht belegt — zuerst position.store.` }));
+      return;
+    }
+    await loadPositions();
+    console.log(`[ML] Position Slot ${slot} aktualisiert (${fields.length} Feld(er)).`);
+    broadcastLibrary();
+  } catch (err) {
+    console.error('[ML] Fehler beim Aktualisieren der Position:', err);
+    ws.send(JSON.stringify({ type: 'error', code: 'update_failed',
+      ref: 'position.update', message: 'Position konnte nicht geaendert werden.' }));
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Presets und Positionen an alle Clients verteilen (PROTOKOLL.md §4.2).
+ * Das alte Frontend kennt `library` noch nicht und bekommt daneben sein
+ * init_state — faellt mit dem Frontend-Neubau weg.
  */
 function broadcastLibrary() {
   if (!wss) return;
+  const lib = JSON.stringify(buildLibraryMessage());
   for (const client of wss.clients) {
-    if (client.readyState === WebSocket.OPEN) sendInitState(client);
+    if (client.readyState !== WebSocket.OPEN) continue;
+    client.send(lib);
+    sendInitStateLegacy(client);
   }
   markStateDirty(null);
 }
@@ -1346,6 +1421,7 @@ async function handleSavePreset(ws, msg) {
     await conn.beginTransaction();
 
     let presetId = msg.preset_id || null;
+    let source;
     const name = msg.name || 'Preset';
     const page = msg.page || 1;
     const faderIndex = msg.fader_index || 1;
@@ -1386,21 +1462,38 @@ async function handleSavePreset(ws, msg) {
       );
     }
 
+    // Quelle der Werte (PROTOKOLL.md §3.3, Entscheidung §10.2):
+    // `channels` ist der Normalfall — explizit, testbar, erlaubt eine
+    // kuratierte Auswahl. Fehlt es, friert der Server ein, was gerade im
+    // Programmer steht. Das ist das gewohnte "Store"-Verhalten echter Pulte
+    // und erspart dem Client, den Programmer-Inhalt zu spiegeln und
+    // zurueckzuschicken (wobei er gegen zwischenzeitliche Aenderungen
+    // laufen koennte).
+    let values;
     if (Array.isArray(msg.channels)) {
-      const values = msg.channels
+      values = msg.channels
         .filter(ch => ch.channel_id != null && ch.max_value != null)
         .map(ch => [
           presetId,
           ch.channel_id,
           clamp(ch.max_value, 0, 1)
         ]);
-
-      if (values.length > 0) {
-        await conn.query(
-          'INSERT INTO light_preset_values (preset_id, channel_id, max_value) VALUES ?',
-          [values]
-        );
+      source = 'channels';
+    } else {
+      // Nur Kanaele ungleich 0 — ein Preset aus lauter Nullen waere leer,
+      // aber nicht leer gespeichert.
+      values = [];
+      for (const [channelId, val] of programmerValues) {
+        if (val > 0) values.push([presetId, channelId, clamp(val, 0, 1)]);
       }
+      source = 'programmer';
+    }
+
+    if (values.length > 0) {
+      await conn.query(
+        'INSERT INTO light_preset_values (preset_id, channel_id, max_value) VALUES ?',
+        [values]
+      );
     }
 
     await conn.commit();
@@ -1413,7 +1506,7 @@ async function handleSavePreset(ws, msg) {
     broadcastLibrary();
 
     ws.send(JSON.stringify({ type: 'preset_saved', preset_id: presetId }));
-    console.log(`[PRESET] Preset ${presetId} gespeichert (${name})`);
+    console.log(`[PRESET] Preset ${presetId} gespeichert (${name}), ${values.length} Kanaele aus ${source}.`);
   } catch (err) {
     await conn.rollback();
     console.error('[PRESET] Fehler beim Speichern:', err);
@@ -1544,34 +1637,104 @@ async function handleMlPosRecall(ws, msg) {
 
 
 /* --------------------------------------------------------
- * Initialzustand an Client schicken
+ * Verbindungssequenz (PROTOKOLL.md §2)
+ *
+ *   hello  →  patch  →  library  →  state
+ *
+ * `patch` und `library` sind gross und aendern sich selten, `state` ist
+ * der erste vollstaendige Zustands-Snapshot. Der Client sendet zum Aufbau
+ * nichts; passt seine Protokollversion nicht, trennt er selbst.
  * ------------------------------------------------------*/
 
-function sendInitState(ws) {
-  const presetsArray = [];
+function buildPresetList() {
+  const list = [];
   for (const [id, p] of presets) {
-    presetsArray.push({
+    list.push({
       id,
       name: p.meta.name,
       page: p.meta.page,
-      fader_index: p.meta.fader_index,
-      level: presetFaderLevels.get(id) ?? 0
+      fader_index: p.meta.fader_index
     });
   }
+  return list;
+}
 
-  const channelsArray = dmxChannels.map(ch => ({
+function buildChannelList() {
+  return dmxChannels.map(ch => ({
     id: ch.id,
     name: ch.name || `Ch ${ch.id}`,
     universe: ch.universe ?? ARTNET_UNIVERSE_DEFAULT,
     dmx_address: ch.dmx_address,
     channel_group: ch.channel_group ?? null,
-    fixed_value: ch.fixed_value ?? null
+    fixed_value: ch.fixed_value ?? null,
+    is_intensity: !!ch.is_intensity
+  }));
+}
+
+/** Patch: Kanaele und Movinglights (PROTOKOLL.md §4.1). */
+function buildPatchMessage() {
+  return {
+    type: 'patch',
+    channels: buildChannelList(),
+    ml_fixtures: mlFixtures.map(ml => ({
+      id: ml.id,
+      name: ml.name,
+      pan: ml.pan_channel_id,
+      pan_fine: ml.pan_fine_channel_id ?? null,
+      tilt: ml.tilt_channel_id,
+      tilt_fine: ml.tilt_fine_channel_id ?? null,
+      zoom: ml.zoom_channel_id ?? null,
+      dimmer: ml.dimmer_channel_id ?? null,
+      pan_invert: !!ml.pan_invert,
+      tilt_invert: !!ml.tilt_invert
+    }))
+  };
+}
+
+/** Bibliothek: Presets und alle Positionsslots (PROTOKOLL.md §4.2). */
+function buildLibraryMessage() {
+  return {
+    type: 'library',
+    presets: buildPresetList(),
+    positions: buildPositionList()
+  };
+}
+
+/**
+ * Die vier Aufbaunachrichten an einen frisch verbundenen Client.
+ * Der `state` geht hier direkt raus statt auf den naechsten Takt zu warten —
+ * sonst saehe ein neuer Client bis zu STATE_KEEPALIVE_MS lang nichts.
+ */
+function sendHandshake(ws) {
+  ws.send(JSON.stringify({
+    type: 'hello',
+    protocol: PROTOCOL_VERSION,
+    client_id: ws.clientId,
+    server_time: Date.now()
+  }));
+  ws.send(JSON.stringify(buildPatchMessage()));
+  ws.send(JSON.stringify(buildLibraryMessage()));
+  ws.send(JSON.stringify(buildStateMessage(null)));
+
+  // Solange das alte Frontend laeuft, braucht es weiterhin sein init_state.
+  // Faellt mit dem Frontend-Neubau weg (Schritt 4: v1-Aliase entfernen).
+  sendInitStateLegacy(ws);
+}
+
+/* --------------------------------------------------------
+ * v1: Initialzustand an Client schicken — nur noch fuer das alte Frontend
+ * ------------------------------------------------------*/
+
+function sendInitStateLegacy(ws) {
+  const presetsArray = buildPresetList().map(p => ({
+    ...p,
+    level: presetFaderLevels.get(p.id) ?? 0
   }));
 
   const msg = {
     type: 'init_state',
     presets: presetsArray,
-    channels: channelsArray,
+    channels: buildChannelList(),
     positions: buildPositionList(),
     ml_state: {
       pan: mlState.pan,

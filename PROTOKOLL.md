@@ -1,15 +1,15 @@
 # Atrium Light – WebSocket-Protokoll v2 (Entwurf)
 
-Stand: 2026-08-29 · Status: **serverseitig implementiert**
+Stand: 2026-09-01 · Status: **serverseitig vollständig implementiert**
 
-Die Befehle aus §3 und die `state`-Nachricht aus §4.3 sind im Backend
-vorhanden und getestet. Die v1-Namen laufen als Aliase weiter, bis das neue
-Frontend steht (§9); `save_ml_position` / `recall_ml_position` sind bereits
-entfernt. Noch offen ist die Verbindungssequenz aus §2 — statt
-`hello` + `patch` + `library` schickt der Server weiterhin `init_state`.
+Die Verbindungssequenz aus §2, die Befehle aus §3 und die Nachrichten aus §4
+sind im Backend vorhanden und getestet. Die v1-Namen laufen als Aliase weiter,
+bis das neue Frontend steht (§9); `save_ml_position` / `recall_ml_position`
+sind bereits entfernt. Ebenso geht neben `patch`/`library`/`state` weiterhin
+das alte `init_state` raus, damit das bestehende v1-Frontend bedienbar bleibt —
+beides fällt zusammen mit dem Frontend-Neubau weg.
 
 Grundlage für den Frontend-Neubau und für Abschnitt 5/B2 der `ANALYSE.md`.
-Solange dieses Dokument Entwurf ist, gilt im Code weiterhin v1 (siehe §9).
 
 ---
 
@@ -126,6 +126,18 @@ antwortet der Server mit `error` und `code: "slot_occupied"` — **überschreibe
 ohne Rückfrage gibt es nicht mehr**. Das Frontend fragt nach und schickt dann
 `preset.save` mit der bestehenden `preset_id`.
 
+**`channels` ist optional** (Entscheidung §10.2). Fehlt das Feld, speichert der
+Server, was gerade im Programmer steht — das gewohnte „Store“ echter Pulte:
+
+```json
+{ "type": "preset.save", "preset_id": null, "name": "Aus Programmer",
+  "page": 4, "fader_index": 1 }
+```
+
+Kanäle mit Wert 0 kommen dabei nicht mit. Wird `channels` mitgeschickt, gilt
+ausschliesslich diese Liste — damit bleibt ein Preset aus einer Teilauswahl
+möglich, und der Programmer-Stand spielt keine Rolle.
+
 ### 3.4 Programmer
 
 ```json
@@ -138,12 +150,20 @@ ohne Rückfrage gibt es nicht mehr**. Das Frontend fragt nach und schickt dann
 ```json
 { "type": "position.store",  "slot": 3, "name": "Bühne links", "fade_time_sec": 2.0 }
 { "type": "position.recall", "slot": 3 }
+{ "type": "position.update", "slot": 3, "name": "Bühne Mitte", "fade_time_sec": 4.0 }
 { "type": "position.delete", "slot": 3 }
 ```
 
 `position.store` speichert den **aktuellen** ML-Zustand — der Client schickt
 keine Koordinaten mehr mit. Er weiß sie ohnehin nur aus dem letzten `state`,
 und damit war v1 anfällig für genau die Rennsituation aus §1.
+
+`position.update` ändert **nur** Name und/oder Fadezeit und lässt Pan/Tilt/Zoom
+unberührt (Entscheidung §10.3). Ohne diesen Befehl liesse sich ein Slot nicht
+umbenennen und keine Fadezeit korrigieren, ohne den Kopf vorher dorthin zu
+fahren. Beide Felder sind einzeln optional, mindestens eines muss gesetzt sein
+(sonst `bad_request`). Auf einen leeren Slot angewendet antwortet der Server mit
+`not_found` — eine Position ohne Koordinaten kann so nicht entstehen.
 
 ### 3.6 Einstellungen
 
@@ -326,26 +346,37 @@ für alle. `patch.ml_fixtures` ist bereits eine Liste.
 | `error` (Freitext) | `error` mit `code` |
 
 Neu ohne Vorgänger: `master.grandmaster`, `master.blackout`,
-`programmer.clear`, `preset.delete`, `position.delete`, `library.positions`.
+`programmer.clear`, `preset.delete`, `position.delete`, `position.update`,
+`library.positions`.
 
 Ein Parallelbetrieb v1/v2 ist nicht vorgesehen — Frontend und Backend werden
 zusammen umgestellt.
 
 ---
 
-## 10. Offene Entscheidungen
+## 10. Entscheidungen
 
-1. **Grandmaster auch auf den ML-Dimmer?** Oben mit `is_intensity` auf Adresse
-   25 bejaht. Auf manchen Pulten ist der Moving-Head-Dimmer bewusst
-   ausgenommen. — *Vorschlag: einbeziehen, das ist die erwartete Wirkung.*
-2. **Programmer-Werte in Presets speichern**: `preset.save` schickt heute
-   explizit `channels`. Alternative wäre „speichere, was gerade im Programmer
-   steht". — *Vorschlag: explizit lassen, das ist testbarer.*
-3. **`position.store` ohne Koordinaten** (§3.5) heißt: der Client kann keine
-   Position speichern, die er nicht gerade anfährt. Gewollt?
-4. **Authentifizierung — entschieden am 2026-08-29: bewusst keine.** Das
-   Betriebsnetz gilt als vertrauenswürdig, jeder darin darf das Licht steuern.
-   Damit bleibt `hello` der erste Schritt ohne vorgelagerten Handshake.
+Alle vier am 2026-08-29 / 2026-09-01 entschieden.
+
+1. **Grandmaster auch auf den ML-Dimmer? — ja, einbeziehen.** Über
+   `is_intensity` erfasst `applyMaster()` auch den Wash-Dimmer (Adresse 25).
+   Auf manchen Pulten ist der Moving-Head-Dimmer bewusst ausgenommen; hier
+   nicht — ein Blackout, der den Wash anlässt, wäre im Live-Betrieb eine
+   böse Überraschung. Pan/Tilt und die festen Segmentkanäle bleiben
+   unberührt.
+2. **Programmer-Werte in Presets speichern — beides.** `channels` bleibt der
+   explizite, testbare Normalfall und erlaubt eine kuratierte Auswahl; fehlt
+   es, friert der Server den Programmer ein (§3.3). Der Client muss den
+   Programmer-Inhalt damit nicht spiegeln und zurücksenden — wobei er gegen
+   zwischenzeitliche Änderungen laufen könnte.
+3. **`position.store` ohne Koordinaten — bleibt so, ergänzt um
+   `position.update`.** Koordinaten kommen weiterhin ausschliesslich aus dem
+   Serverzustand (verhindert die Rennsituation aus §1). Umbenennen und
+   Fadezeit-Korrektur laufen über `position.update` und bewegen den Kopf
+   nicht (§3.5).
+4. **Authentifizierung — bewusst keine.** Das Betriebsnetz gilt als
+   vertrauenswürdig, jeder darin darf das Licht steuern. Damit bleibt `hello`
+   der erste Schritt ohne vorgelagerten Handshake.
    *Konsequenz, falls sich das ändert:* Auth gehört vor `hello`, das Protokoll
    müsste dafür in §2 aufgebrochen werden. Ebenso bleibt `ws://` unverschlüsselt
    — wer das Pult über ein fremdes Netz erreichbar macht, muss vorher hier
