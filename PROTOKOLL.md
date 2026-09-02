@@ -94,7 +94,7 @@ damit der vorherige Grandmaster-Stand beim Aufheben erhalten bleibt.
 ### 3.2 Movinglight
 
 ```json
-{ "type": "ml.move",   "pan_speed": -0.4, "tilt_speed": 0.1 }
+{ "type": "ml.move",   "pan_speed": -0.4, "tilt_speed": 0.1, "sensitivity": 0.25 }
 { "type": "ml.goto",   "pan": 0.5, "tilt": 0.5 }
 { "type": "ml.zoom",   "value": 0.7 }
 { "type": "ml.dimmer", "value": 0.4 }
@@ -102,6 +102,13 @@ damit der vorherige Grandmaster-Stand beim Aufheben erhalten bleibt.
 
 `ml.move` ist der einzige fortlaufende Befehl. Er setzt eine
 **Geschwindigkeit**, die der Server weiter integriert, bis etwas anderes kommt.
+
+`sensitivity` ist **optional** (0.05–1.0). Fehlt das Feld, gilt die
+eingestellte Pad-Empfindlichkeit — so schickt es das Touch-Pad. Der
+Controller setzt stattdessen einen festen Wert: sein Stickweg ist bereits
+die Dosierung, eine zweite am Bildschirm verstellte Skala darüber macht ihn
+unberechenbar. Der Wert gilt nur für die zuletzt gesetzte Geschwindigkeit
+und fällt mit dem Totmann zusammen weg.
 
 > **Totmann-Schalter:** Bleibt eine gesetzte Geschwindigkeit länger als
 > `ML_MOVE_TIMEOUT_MS` (Vorschlag: 400 ms) ohne Auffrischung, setzt der Server
@@ -263,6 +270,17 @@ Der Server antwortet allen Clients mit `reloaded` und schickt anschließend
 
 Dasselbe löst **SIGHUP** aus: `docker compose kill -s HUP backend`.
 
+```json
+{ "type": "diag.request" }
+```
+
+Fragt den Serverzustand für das Verbindungsfenster ab. Antwort: `diag`
+(§4.6), **nur an den fragenden Client**. Bewusst auf Anfrage statt als Feld
+im `state`-Broadcast: die Zahlen interessieren nur, solange jemand hinsieht,
+und `state` geht mit `STATE_HZ` an alle. Der Server fragt für die Antwort
+die Datenbank mit einem `SELECT 1` wirklich an, statt einen gemerkten
+Zustand zu melden.
+
 > Achtung beim Betrieb im Container: Node läuft dort als PID 1, und der Kernel
 > stellt PID 1 nur Signale zu, für die ein Handler registriert ist. Läuft noch
 > eine Version ohne diesen Handler, wird SIGHUP **stillschweigend verworfen** —
@@ -361,6 +379,27 @@ zusätzlich sofort nach jeder Zustandsänderung.
 ```
 
 Maschinenlesbarer `code`, menschenlesbare `message`. v1 hatte nur Freitext.
+
+---
+
+### 4.6 `diag` — nur auf Anfrage
+
+Antwort auf `diag.request` (§3.8), geht nur an den fragenden Client.
+
+```json
+{ "type": "diag",
+  "server": { "version": "1.0.0", "started": 1788349000000, "now": 1788349064000,
+              "clients": 2, "tick_hz": 40, "state_hz": 10, "state_seq": 8412 },
+  "artnet": { "mode": "unicast", "target": "192.168.178.50", "port": 6454,
+              "universe": 0, "sync": false,
+              "sent": 2293, "errors": 0, "last_ts": 1788349063980, "last_error": null },
+  "db":     { "ok": true, "error": null, "name": "lichtsteuerung" } }
+```
+
+`artnet.sent` und `artnet.last_ts` sind der einzige Weg, von der Oberfläche
+aus zu sehen, ob überhaupt DMX hinausgeht — ohne sie bleibt nur ein Blick
+auf den Node oder ein Sniffer. `clients` beantwortet die Frage, ob noch ein
+zweites Gerät mitschreibt.
 
 ---
 

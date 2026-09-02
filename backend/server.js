@@ -187,6 +187,17 @@ let blackout = false;
 
 // Zustands-Broadcast
 let stateSeq = 0;
+
+// Art-Net-Ausgabe zaehlen. Die Frage "geht ueberhaupt DMX raus?" laesst sich
+// sonst nur am Node oder mit einem Sniffer beantworten.
+let artnetSent = 0;
+let artnetErrors = 0;
+let artnetLastTs = 0;
+let artnetLastError = null;
+const SERVER_STARTED = Date.now();
+const SERVER_VERSION = (() => {
+  try { return require('./package.json').version; } catch { return 'unbekannt'; }
+})();
 let stateDirty = true;
 let stateOrigin = null;
 let lastStateSentTs = 0;
@@ -196,6 +207,11 @@ let lastStateSentTs = 0;
 let mlPanSpeed  = 0;  // −1..+1
 let mlTiltSpeed = 0;  // −1..+1
 let mlMoveLastTs = 0; // Zeitpunkt der letzten Geschwindigkeitsvorgabe
+// Empfindlichkeit, die der Absender fuer genau diese Bewegung vorgibt.
+// null = es gilt die eingestellte Pad-Empfindlichkeit. Der Controller setzt
+// hier einen festen Wert: sein Stickweg ist bereits die Dosierung, eine
+// zweite daruebergelegte Skala macht ihn nur unberechenbar.
+let mlMoveSensitivity = null;
 
 // Pad-Sensitivität (Frontend-Skala 0.1..1.0, beeinflusst die vom Client geschickten Speeds)
 let padSensitivity = DEFAULT_PAD_SENSITIVITY;
@@ -520,6 +536,7 @@ function updateMlState(dt) {
       Date.now() - mlMoveLastTs > ML_MOVE_TIMEOUT_MS) {
     mlPanSpeed = 0;
     mlTiltSpeed = 0;
+    mlMoveSensitivity = null;
     console.warn('[ML] Keine Bewegungsdaten mehr - Geschwindigkeit auf 0 gesetzt.');
   }
 
@@ -529,7 +546,10 @@ function updateMlState(dt) {
     // JOYSTICK_FULL_RANGE_SEC, 0.1 = zehnmal langsamer fuer feines Setzen.
     // Der Wert wurde bisher geladen, gespeichert und gesendet, aber nirgends
     // angewendet - der Fader im Frontend war damit wirkungslos.
-    const speedScale = padSensitivity / JOYSTICK_FULL_RANGE_SEC;
+    // Gibt der Absender eine Empfindlichkeit mit, gilt seine - sonst die
+    // eingestellte. So bleibt der Controller vom Fader unberuehrt.
+    const wirksameSens = mlMoveSensitivity != null ? mlMoveSensitivity : padSensitivity;
+    const speedScale = wirksameSens / JOYSTICK_FULL_RANGE_SEC;
 
     // Pan
     if (Math.abs(mlPanSpeed) > JOYSTICK_DEADZONE) {
@@ -917,9 +937,14 @@ function sendDmx(universes) {
     const packet = buildArtDmxPacket(uni, dmxArray);
 
     socket.send(packet, 0, packet.length, ARTNET_PORT, ARTNET_TARGET, (err) => {
-      if (err && DEBUG_ERRORS) {
-        console.error('[ARTNET] Send-Fehler (Universe', uni, '):', err);
+      if (err) {
+        artnetErrors++;
+        artnetLastError = err.message;
+        if (DEBUG_ERRORS) console.error('[ARTNET] Send-Fehler (Universe', uni, '):', err);
+        return;
       }
+      artnetSent++;
+      artnetLastTs = Date.now();
     });
   }
 
@@ -1062,9 +1087,13 @@ async function reloadAll(reason) {
  * Bricht eine laufende Positionsfahrt nur bei echter Auslenkung ab: ein
  * ruhender Client sendet dauerhaft 0 und darf den Fade nicht killen.
  */
-function applyMlMove(panSpeed, tiltSpeed) {
+function applyMlMove(panSpeed, tiltSpeed, sensitivity) {
   const p = typeof panSpeed  === 'number' ? clamp(panSpeed,  -1, 1) : 0;
   const t = typeof tiltSpeed === 'number' ? clamp(tiltSpeed, -1, 1) : 0;
+
+  mlMoveSensitivity = typeof sensitivity === 'number'
+    ? clamp(sensitivity, PAD_SENSITIVITY_MIN, 1.0)
+    : null;
 
   if (mlPositionFade &&
       (Math.abs(p) > JOYSTICK_DEADZONE || Math.abs(t) > JOYSTICK_DEADZONE)) {
@@ -1402,7 +1431,7 @@ async function handleClientMessage(ws, msg) {
     // Der Client schickt Absichten, keine Zustaende. Nur ml.move ist
     // fortlaufend und faellt deshalb unter den Totmann-Schalter.
     case 'ml.move':
-      applyMlMove(msg.pan_speed, msg.tilt_speed);
+      applyMlMove(msg.pan_speed, msg.tilt_speed, msg.sensitivity);
       break;
 
     case 'ml.goto':
@@ -1465,6 +1494,46 @@ async function handleClientMessage(ws, msg) {
         console.log('[MASTER] Blackout:', blackout ? 'AN' : 'aus');
       }
       break;
+
+    case 'diag.request': {
+      // Diagnose fuer das Verbindungsfenster im Frontend. Bewusst auf
+      // Anfrage und nicht im state-Broadcast: die Zahlen braucht nur, wer
+      // gerade hinsieht, und der Broadcast laeuft mit STATE_HZ.
+      // Die Datenbank wird gefragt, nicht geraten: ein SELECT 1 kostet hier
+      // nichts und beantwortet die Frage wirklich.
+      let dbOk = false, dbFehler = null;
+      try {
+        const conn = await pool.getConnection();
+        try { await conn.query('SELECT 1'); dbOk = true; }
+        finally { conn.release(); }
+      } catch (err) { dbFehler = err.message; }
+
+      ws.send(JSON.stringify({
+        type: 'diag',
+        server: {
+          version: SERVER_VERSION,
+          started: SERVER_STARTED,
+          now: Date.now(),
+          clients: wss ? wss.clients.size : 1,
+          tick_hz: TICK_HZ,
+          state_hz: STATE_HZ,
+          state_seq: stateSeq
+        },
+        artnet: {
+          mode: ARTNET_MODE,
+          target: ARTNET_TARGET,
+          port: ARTNET_PORT,
+          universe: ARTNET_UNIVERSE_DEFAULT,
+          sync: ARTNET_SYNC,
+          sent: artnetSent,
+          errors: artnetErrors,
+          last_ts: artnetLastTs,
+          last_error: artnetLastError
+        },
+        db: { ok: dbOk, error: dbFehler, name: process.env.DB_NAME || 'lichtsteuerung' }
+      }));
+      break;
+    }
 
     case 'settings.pad_sensitivity':
     case 'ml_sensitivity':                     // v1-Name
