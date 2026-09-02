@@ -96,6 +96,41 @@ services:
     volumes:
       - ./frontend:/var/www/html:ro
 
+  # Optionaler HTTPS-Vorbau. Nur aktiv mit Profil "https":
+  #   docker compose --profile https up -d
+  # Sinn: Android installiert eine PWA nur ueber einen sicheren Ursprung als
+  # echte App (Vollbild ohne Adressleiste). Details in ops/caddy/Caddyfile.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    environment:
+      # LAN-IP oder Hostname des Servers. Genau dieser Name muss am Tablet
+      # in der Adresszeile stehen, sonst passt das Zertifikat nicht.
+      # Kein Pflichtwert: docker compose loest auch Services auf, die gar
+      # nicht im aktiven Profil liegen - ein ${...:?} hier wuerde den ganz
+      # normalen Start ohne https kippen. Der Default localhost taugt zum
+      # Ausprobieren, fuer das Tablet muss die LAN-IP in die .env.
+      LIGHT_HOST: ${LIGHT_HOST:-localhost}
+      # Zweiter Name im selben Zertifikat, ueblicherweise die LAN-IP. So
+      # bleibt der alte Weg erreichbar, waehrend auf den Hostnamen
+      # umgestellt wird. Muss sich von LIGHT_HOST unterscheiden.
+      LIGHT_ALT_HOST: ${LIGHT_ALT_HOST:-127.0.0.1}
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+      # 80 nur uebernehmen, wenn das Frontend nicht schon dort liegt.
+      # Sonst in der .env WEB_PORT=8081 setzen.
+      - "${HTTPS_REDIRECT_PORT:-8880}:80"
+    volumes:
+      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Haelt die lokale CA fest. Ohne dieses Volume wird bei jedem Neustart
+      # eine neue CA erzeugt und das Tablet muesste sie erneut vertrauen.
+      - caddy-data:/data
+      - caddy-config:/config
+
   artnet-monitor:
     image: node:22-alpine
     command: node /tools/artnet-monitor.js
@@ -109,3 +144,5 @@ services:
 
 volumes:
   db-data:
+  caddy-data:
+  caddy-config:

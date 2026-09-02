@@ -1,0 +1,58 @@
+# HTTPS-Vorbau fuer das Atrium-Pult.
+#
+# Zweck: Android installiert eine PWA nur ueber einen sicheren Ursprung als
+# echte App (WebAPK) und blendet sonst die Adressleiste ein. Caddy terminiert
+# deshalb TLS mit einer eigenen, lokalen CA - passend fuer ein LAN, fuer das
+# kein oeffentliches Zertifikat ausgestellt werden kann.
+#
+# Zwei Namen, beide im selben Zertifikat:
+#   LIGHT_HOST      Der Name, den das Tablet benutzt. Ein echter Hostname ist
+#                   einer nackten IP vorzuziehen: Android behandelt eine IP in
+#                   der Link-Verwaltung als nicht zuordenbar, und beim Praegen
+#                   der WebAPK ist ein Name der verlaesslichere Weg.
+#   LIGHT_ALT_HOST  Zusaetzlicher Name, ueblicherweise die LAN-IP. Damit
+#                   bleibt der alte Weg erreichbar, waehrend umgestellt wird.
+#
+# Beide muessen verschieden sein - Caddy lehnt doppelte Adressen ab.
+
+{
+	# Kein ACME/Let's Encrypt: im LAN gibt es keine oeffentliche Domain.
+	# Caddy betreibt stattdessen eine eigene CA unter /data/caddy/pki.
+	local_certs
+	admin off
+
+	# Noetig fuer den Zugriff ueber eine IP: SNI ist per Norm nur fuer
+	# Hostnamen vorgesehen, ein Browser schickt bei einer IP also keines mit.
+	# Ohne diese Zeile weiss Caddy dann nicht, welches Zertifikat es vorlegen
+	# soll, und bricht den Handshake ab - im Browser als ERR_SSL_PROTOCOL_ERROR.
+	# Hier gehoert deshalb die IP hinein, nicht der Hostname.
+	default_sni {$LIGHT_ALT_HOST:127.0.0.1}
+}
+
+{$LIGHT_HOST:localhost}, {$LIGHT_ALT_HOST:127.0.0.1} {
+	tls internal
+
+	# WebSocket zum Lichtserver. Muss vor dem Frontend-Handler stehen.
+	handle /ws {
+		reverse_proxy backend:8080
+	}
+
+	# Alles andere ist das PHP-Frontend.
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	# Der Service Worker darf nie aus einem Proxy-Cache kommen, sonst haengt
+	# das Pult nach einem Update am alten Stand fest.
+	header /sw.js Cache-Control "no-cache"
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# Wer versehentlich http:// aufruft, landet auf https://.
+http://{$LIGHT_HOST:localhost}, http://{$LIGHT_ALT_HOST:127.0.0.1} {
+	redir https://{host}{uri} permanent
+}

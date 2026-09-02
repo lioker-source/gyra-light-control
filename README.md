@@ -79,6 +79,7 @@ sudo ufw allow 8080/tcp   # WebSocket
 ### Inhalt
 
 - `start.sh` – startet/stoppt die komplette Umgebung (siehe Schnellstart)
+- `frontend/manifest.webmanifest`, `frontend/sw.js`, `frontend/app-icons/` – PWA-Teile (Installation als App, Vollbild, Offline-Fallback)
 - `frontend/index.php` – Tablet-Weboberfläche (W3.CSS, Touch-Pad, Zwei-Finger-Zoom/Dimmer, Gamepad, Preset-/Programmer-Fader, ML-Positionsbuttons, Zoom/Dimmer-Fader und Recall-Synchronisierung)
 - `backend/server.js` – WebSocket-, MySQL- und Art-Net-Server mit HTP-Mischung, ML-Steuerung, Positionsspeicherung und robustem Start/Fehlerhandling
 - `backend/package.json` – benötigte Node-Abhängigkeiten
@@ -86,6 +87,7 @@ sudo ufw allow 8080/tcp   # WebSocket
 - `backend/.env.example` – dasselbe fuer den nativen Betrieb ohne Docker
 - `database/schema.sql` – aus dem produktiven Backend rekonstruierte Tabellenstruktur
 - `database/export-current-db.sh` – erzeugt auf dem echten Server einen vollständigen Dump inklusive aktueller Presets/Positionen/Patch
+- `ops/caddy/` – optionaler HTTPS-Vorbau (Caddy) samt Skript fuer das Wurzelzertifikat; noetig fuer die Installation als App auf dem Tablet
 - `ops/ecosystem.config.js` – optionale PM2-Konfiguration
 - `ops/lightserver.service.example` – alternative systemd-Unit
 
@@ -189,6 +191,112 @@ Das Frontend ermittelt den WebSocket-Host automatisch aus der
 Browser-Adresszeile – vom Tablet also einfach
 `http://<IP-des-Rechners>` aufrufen. Läuft das Backend woanders,
 hilft `?ws=<host>[:<port>]` in der URL oder `LIGHT_WS_HOST` in der `.env`.
+
+### Als App auf dem Tablet (PWA)
+
+Das Pult bringt ein Web-App-Manifest (`frontend/manifest.webmanifest`),
+Icons (`frontend/app-icons/`) und einen Service Worker (`frontend/sw.js`)
+mit. Richtig installiert laeuft es im Vollbild, im Querformat, ohne
+Adressleiste und mit eigenem Icon im App-Drawer.
+
+**Das geht nur ueber HTTPS.** Android baut aus einer PWA nur dann eine echte
+App (ein *WebAPK*), wenn der Ursprung sicher ist; sonst entsteht bloss eine
+Verknuepfung, die in Chrome mit Adressleiste aufgeht. Das Chrome-Flag
+`unsafely-treat-insecure-origin-as-secure` reicht dafuer **nicht** — es
+erlaubt die Installation, wird aber an das WebAPK nicht vererbt.
+
+Deshalb liegt ein HTTPS-Vorbau bei: Caddy mit einer eigenen lokalen CA,
+passend fuer eine LAN-IP, fuer die es kein oeffentliches Zertifikat gibt.
+
+**1. Namen eintragen.** In der `.env` den Namen setzen, unter dem das Tablet
+das Pult aufruft — genau diese Adresse muss spaeter in der Adresszeile stehen:
+
+```ini
+LIGHT_HOST=atrium.fritz.box
+LIGHT_ALT_HOST=192.168.178.110
+```
+
+`LIGHT_HOST` sollte ein **Hostname** sein, keine nackte IP. Android behandelt
+eine IP in der Link-Verwaltung als nicht zuordenbar — die installierte App
+steht dann zwar im App-Drawer, reicht ihre eigene Adresse beim Start aber an
+Chrome weiter und geht mit Adressleiste auf. Mit einem Namen faellt das weg.
+
+Der Name muss im LAN aufloesbar sein. Am einfachsten ueber den Router: eine
+FritzBox vergibt jedem Geraet automatisch `<geraetename>.fritz.box`, andere
+Router haben eine Liste fuer feste DNS-Namen. Zum Pruefen vom Tablet aus
+reicht ein Aufruf von `http://<name>/` im Browser.
+
+`LIGHT_ALT_HOST` ist ein zweiter Name — ueblicherweise die LAN-IP —, damit der
+bisherige Weg waehrend der Umstellung erreichbar bleibt. Beide Werte muessen
+sich unterscheiden; Caddy stellt fuer jeden ein eigenes Zertifikat aus.
+
+**2. Starten** (das Profil `https` ist optional, ohne es bleibt alles wie
+bisher):
+
+```bash
+docker compose --profile https up -d
+```
+
+Das Pult liegt dann zusaetzlich auf `https://<LIGHT_HOST>/`. Port 80 behaelt
+das Frontend im Klartext; wer die Umleitung http→https auf 80 will, rueckt
+das Frontend mit `WEB_PORT=8081` weg und setzt `HTTPS_REDIRECT_PORT=80`.
+
+**3. Wurzelzertifikat aufs Tablet:**
+
+```bash
+./ops/caddy/export-ca.sh        # erzeugt atrium-light-ca.crt
+```
+
+Die Datei aufs Tablet bringen und dort installieren: *Einstellungen →
+Sicherheit → Verschluesselung & Zugangsdaten → Zertifikat installieren →
+CA-Zertifikat → Trotzdem installieren*. Android warnt dabei deutlich — das
+ist bei einer eigenen CA erwartbar.
+
+**4. Installieren.** Am Tablet `https://<LIGHT_HOST>/` aufrufen (das Schloss
+muss zu sein), dann Menue → *App installieren*. Fuer das WebAPK braucht das
+Tablet **einmalig Internet**: Chrome laesst die App bei Google bauen. Ohne
+Internet entsteht wieder nur eine Verknuepfung.
+
+**5. Chrome-Flag zuruecksetzen.** `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
+wieder leeren — es wird nicht mehr gebraucht und verdeckt sonst echte Fehler.
+
+> **`ERR_SSL_PROTOCOL_ERROR` beim Aufruf?** Dann fehlt `default_sni` im
+> globalen Block des `Caddyfile`. Beim Aufruf ueber eine IP-Adresse schickt
+> der Browser kein SNI mit — das ist per Norm nur fuer Hostnamen vorgesehen.
+> Caddy weiss dann nicht, welches Zertifikat es vorlegen soll, und bricht den
+> Handshake ab. Dort gehoert deshalb `LIGHT_ALT_HOST` (die IP) hinein, nicht
+> der Hostname. Ueber den Hostnamen tritt das nie auf.
+
+Kontrolle: unter `chrome://webapks` muss „Atrium Light" stehen. Ist die Liste
+leer, war es nur eine Verknuepfung — dann Schritt 4 mit Internet wiederholen.
+
+> **Die App steht im App-Drawer, oeffnet aber Chrome?** Dann wurde beim
+> Installieren `browser` als Anzeigemodus in die WebAPK gebrannt — der Modus
+> ist fest und aendert sich nicht durch ein Update des Manifests. Zu sehen
+> unter `chrome://webapks` in der Zeile „Display Mode". Abhilfe: App
+> deinstallieren, in Chrome die Websitedaten der Adresse loeschen, dann ueber
+> den **Hostnamen** neu installieren. Ueber eine nackte IP passiert genau das
+> immer wieder.
+
+Der WebSocket laeuft unter HTTPS als `wss://<LIGHT_HOST>/ws` ueber denselben
+Proxy. Das ist keine Bequemlichkeit: ein `ws://` von einer `https`-Seite
+blockiert der Browser als Mixed Content. `frontend/app.js` waehlt das Schema
+automatisch anhand der Seite, an der `.env` ist dafuer nichts zu tun.
+
+Der Service Worker liefert grundsaetzlich *network-first*: ein neu deployter
+Stand gewinnt immer, der Cache ist nur der Fallback, wenn der Server nicht
+antwortet. Die Bedienung haengt am WebSocket und laeuft am Service Worker
+vorbei — offline zeigt das Pult wie gehabt den Offline-Schirm, es wird nichts
+aus dem Cache „weiterbedient".
+
+Nach Aenderungen an `app.js`/`app.css` die `VERSION` in `frontend/sw.js`
+hochzaehlen; dann raeumt der neue Worker den alten Cache ab und die laufende
+App laedt sich einmal neu.
+
+> Stolperstein, falls du eigene Dateien ergaenzt: Apache belegt `/icons/`
+> bereits per `Alias` fuer seine Autoindex-Symbole. Ein Verzeichnis
+> `frontend/icons/` waere darum von aussen nicht erreichbar — deshalb heisst
+> es `frontend/app-icons/`.
 
 ### Test-Patch
 

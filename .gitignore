@@ -26,3 +26,6 @@ desktop.ini
 design/atrium-light-pult.html
 design/live-v2/
 .env.bak
+
+# Exportiertes Wurzelzertifikat der lokalen Caddy-CA (ops/caddy/export-ca.sh)
+atrium-light-ca.crt
