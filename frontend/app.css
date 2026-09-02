@@ -39,7 +39,38 @@ html, body {
   touch-action: manipulation;
 }
 
-#app { display: flex; flex-direction: column; height: 100%; }
+/* ---------- Buehne ---------------------------------------------------- */
+
+/* Das Pult ist auf eine feste Zeichenflaeche von 1280 x 800 entworfen - das
+   ist genau das Seitenverhaeltnis 16:10 gaengiger Android-Tablets (das
+   OnePlus Pad Lite hat 1920 x 1200). Statt jede Kachel einzeln fluid zu
+   machen, liegt das ganze Pult auf dieser Flaeche und wird per transform auf
+   den vorhandenen Platz skaliert. Der Grund: welche CSS-Pixelgroesse Chrome
+   aus der Bildschirmaufloesung ableitet, haengt an der Geraetedichte und ist
+   nicht vorhersagbar - mal 1280 x 800, mal 960 x 600. Der Massstab faengt das
+   ab, die Proportionen bleiben gleich, und physisch bleiben die Trefferziele
+   ebenfalls gleich gross.
+   Die Breite der Flaeche folgt dem Seitenverhaeltnis (fitStage() in app.js),
+   damit auf abweichenden Schirmen keine schwarzen Balken stehen bleiben. */
+
+#fit {
+  position: fixed;
+  /* In der installierten App laeuft die Seite unter Kamera und Rundungen
+     hindurch (viewport-fit=cover). Die Buehne haelt sich davon frei. */
+  top: env(safe-area-inset-top); right: env(safe-area-inset-right);
+  bottom: env(safe-area-inset-bottom); left: env(safe-area-inset-left);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+
+#app {
+  flex: none;
+  width: var(--canvas-w, 1280px);
+  height: var(--canvas-h, 800px);
+  display: flex; flex-direction: column;
+  transform: scale(var(--scale, 1));
+  transform-origin: center center;
+}
 
 /* ---------- Kopfzeile ------------------------------------------------- */
 
@@ -65,7 +96,8 @@ html, body {
 }
 body.online #conn-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(98,169,74,.13); }
 #conn-label { font: 600 13px/1.2 var(--sans); }
-#conn-sub   { font: 400 11px/1.2 var(--mono); color: var(--txt3); }
+#conn-sub   { font: 400 11px/1.2 var(--mono); color: var(--txt3); white-space: nowrap; }
+#conn > div { flex: none; }
 
 #statecount { display: flex; flex-direction: column; gap: 3px; }
 #statecount .cap { font: 400 11px/1 var(--mono); color: var(--txt3); }
@@ -124,17 +156,26 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 .page { display: none; flex-direction: column; gap: 16px; height: 100%; }
 .page.active { display: flex; }
 
+/* Live-Zeile behaelt ihr Entwurfsmass, die Presetbank fuellt den Rest der
+   Seite - so bleibt auf hoeheren Buehnen unten kein toter Streifen. */
+.page.active > #live-row { flex: none; }
+.page.active > #live-row + .col { flex: 1 1 auto; min-height: 0; }
+
 .sect-title { display: flex; justify-content: space-between; align-items: baseline; height: 20px; }
 .sect-title .t { font: 600 12px/1 var(--sans); letter-spacing: .08em; color: var(--txt2); text-transform: uppercase; }
 .sect-title .r { font: 400 11px/1 var(--mono); color: var(--txt3); }
 
 #live-row { display: flex; gap: 16px; }
-.col { display: flex; flex-direction: column; gap: 10px; }
+.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* Pad und Wash behalten ihre Entwurfsbreite; die zusaetzliche Breite
+   breiterer Schirme bekommt allein die Positionsspalte. */
+#live-row > .col { flex: none; }
 
 /* ---------- Pad ------------------------------------------------------- */
 
 #pad {
-  position: relative; width: 360px; height: 360px;
+  /* 386 px: damit Pad, Wash und Positionsraster unten buendig enden. */
+  position: relative; width: 386px; height: 386px;
   background: var(--sunk); border: 1px solid var(--line);
   border-radius: 12px; overflow: hidden; touch-action: none;
 }
@@ -174,6 +215,8 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 .fader .name {
   font: 500 11px/1.25 var(--sans); color: var(--txt2);
   text-align: center; height: 28px; overflow: hidden; width: 100%;
+  /* Lange Namen duerfen an vorgegebener Stelle trennen (siehe app.js). */
+  hyphens: manual; -webkit-hyphens: manual;
 }
 .fader .track { position: relative; width: 100%; flex-grow: 1; }
 .fader .rail {
@@ -231,8 +274,8 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 
 /* ---------- Presetbank ------------------------------------------------ */
 
-#presetbank { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 6px; }
-#presetbank .fader, #presetbank .fader-empty { height: 188px; }
+#presetbank { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 6px; flex-grow: 1; min-height: 0; }
+/* Keine feste Hoehe: makeFader() setzt hier keine, das Raster streckt sich. */
 
 /* ---------- Programmer ------------------------------------------------ */
 

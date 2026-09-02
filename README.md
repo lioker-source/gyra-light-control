@@ -192,6 +192,23 @@ Browser-Adresszeile – vom Tablet also einfach
 `http://<IP-des-Rechners>` aufrufen. Läuft das Backend woanders,
 hilft `?ws=<host>[:<port>]` in der URL oder `LIGHT_WS_HOST` in der `.env`.
 
+### Bildschirmgroesse
+
+Das Pult liegt auf einer festen Zeichenflaeche von 1280 x 800 (16:10) und wird
+per `transform: scale()` auf den vorhandenen Platz gerechnet (`fitStage()` in
+`frontend/app.js`, Buehnenregeln oben in `frontend/app.css`). Grund: welche
+CSS-Pixelgroesse Chrome aus der Bildschirmaufloesung ableitet, haengt an der
+Geraetedichte - ein OnePlus Pad Lite mit 1920 x 1200 meldet je nach Einstellung
+1280 x 800 oder 960 x 600. Der Massstab faengt das ab; die Proportionen und die
+physische Groesse der Trefferziele bleiben in beiden Faellen gleich.
+
+Auf abweichenden Seitenverhaeltnissen waechst die Flaeche in der Breite mit
+(1280 bis 1600 px), die zusaetzliche Breite bekommt die Positionsspalte. Nur
+wenn selbst 1280 px nicht mehr passen, bleibt oben und unten ein Rand.
+
+Wer Masse aendert, aendert sie in diesem 1280-x-800-Raster - nicht in
+Prozent oder `vw`/`vh`, die beziehen sich auf den Schirm, nicht auf die Buehne.
+
 ### Als App auf dem Tablet (PWA)
 
 Das Pult bringt ein Web-App-Manifest (`frontend/manifest.webmanifest`),

@@ -79,8 +79,20 @@ function wsUrl() {
   const params = new URLSearchParams(location.search);
   const override = params.get('ws');
   if (override) {
-    return override.includes(':') ? `ws://${override}` : `ws://${override}:${CFG.port}`;
+    // Der Override nennt Host und ggf. Port direkt. Schema passend zur Seite,
+    // damit er auch hinter dem HTTPS-Proxy funktioniert.
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    return override.includes(':') ? `${proto}://${override}` : `${proto}://${override}:${CFG.port}`;
   }
+
+  // Laeuft die Seite ueber HTTPS (Caddy-Proxy, siehe ops/caddy/), muss auch
+  // der Socket verschluesselt sein - ein ws:// von einer https-Seite blockiert
+  // der Browser als Mixed Content. Der Proxy reicht /ws an das Backend weiter,
+  // deshalb ohne eigenen Port ueber denselben Ursprung.
+  if (location.protocol === 'https:') {
+    return `wss://${location.host}/ws`;
+  }
+
   const host = CFG.host || location.hostname || '127.0.0.1';
   return `ws://${host}:${CFG.port}`;
 }
@@ -233,13 +245,14 @@ function indexPatch() {
 
 function makeFader(opts) {
   const {
-    name, value = 0, width = 72, height = 188,
+    name, value = 0, width = 72, height = null,
     tint = null, locked = false, sub = false, onChange = null, onHold = null
   } = opts;
 
   const root = el('div', 'fader' + (locked ? ' locked' : ''));
   root.style.width  = width + 'px';
-  root.style.height = height + 'px';
+  // Ohne Hoehe bestimmt sie der Container (Presetbank: fuellt die Seite).
+  if (height !== null) root.style.height = height + 'px';
 
   const nameEl = el('div', 'name', name);
   const track  = el('div', 'track');
@@ -269,7 +282,7 @@ function makeFader(opts) {
   };
 
   function paint() {
-    const h = track.clientHeight || (height - 50);
+    const h = track.clientHeight;
     const y = Math.round(api.value * h);
     fill.style.height = y + 'px';
     grip.style.bottom = Math.max(-4, Math.min(h - 26, y - 15)) + 'px';
@@ -544,6 +557,7 @@ function buildPresetBank() {
     });
     presetFaders.set(p.id, f);
     bank.appendChild(f.el);
+    f.setValue(f.value, true);
   }
 }
 
@@ -1288,11 +1302,11 @@ function setupLive() {
   pad = setupPad();
 
   const washW = 72;   // 3 Fader plus 2x8 px Abstand fuellen die Spalte
-  zoomFader = makeFader({ name: 'Zoom', value: 0.5, width: washW, height: 380,
+  zoomFader = makeFader({ name: 'Zoom', value: 0.5, width: washW, height: 386,
     onChange: (v) => send({ type: 'ml.zoom', value: v }) });
-  dimFader = makeFader({ name: 'Dimmer', value: 0, width: washW, height: 380,
+  dimFader = makeFader({ name: 'Dimmer', value: 0, width: washW, height: 386,
     onChange: (v) => send({ type: 'ml.dimmer', value: v }) });
-  sensFader = makeFader({ name: 'Pad-Empfindlichkeit', value: 1, width: washW, height: 380, tint: 'var(--teal)',
+  sensFader = makeFader({ name: 'Pad-Emp\u00ADfindlichkeit', value: 1, width: washW, height: 386, tint: 'var(--teal)',
     onChange: (v) => send({ type: 'settings.pad_sensitivity', value: v }) });
 
   $('#wash-faders').append(zoomFader.el, dimFader.el, sensFader.el);
@@ -1330,7 +1344,45 @@ function setupProgrammerBar() {
   });
 }
 
+/* ---------------------------------------------------------------------- */
+/* Buehne auf den Schirm rechnen                                          */
+/* ---------------------------------------------------------------------- */
+
+// Entwurfsmass des Pults. Alle Kachelmasse in app.css beziehen sich darauf.
+const STAGE_H     = 800;
+const STAGE_MIN_W = 1280;   // schmaler passt die Live-Zeile nicht mehr
+const STAGE_MAX_W = 1600;   // darueber wuerde die Positionsspalte nur leerlaufen
+
+// Hoehe gibt den Massstab vor, die Breite folgt dem Seitenverhaeltnis des
+// Geraets. Auf 16:10 - also auch dem OnePlus Pad Lite - kommt genau die
+// Entwurfsflaeche 1280 x 800 heraus, randlos und ohne Balken.
+function fitStage() {
+  const fit = $('#fit');
+  const w = fit.clientWidth, h = fit.clientHeight;
+  if (!w || !h) return;
+
+  let scale = h / STAGE_H;
+  const canvasW = Math.min(STAGE_MAX_W, Math.max(STAGE_MIN_W, Math.round(w / scale)));
+  // Reicht die Breite dafuer nicht (hochkant, sehr quadratische Schirme),
+  // bestimmt stattdessen sie den Massstab. Dann bleibt oben und unten Rand.
+  if (canvasW * scale > w) scale = w / canvasW;
+
+  const root = document.documentElement.style;
+  root.setProperty('--canvas-w', canvasW + 'px');
+  root.setProperty('--scale', String(scale));
+}
+
+function setupStage() {
+  fitStage();
+  window.addEventListener('resize', fitStage);
+  window.addEventListener('orientationchange', fitStage);
+  // Beim Wechsel in den Vollbildmodus der App aendert sich nur das
+  // visualViewport, nicht immer window - deshalb beides beobachten.
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', fitStage);
+}
+
 window.addEventListener('DOMContentLoaded', () => {
+  setupStage();
   setupTabs();
   setupHeader();
   setupLive();

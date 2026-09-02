@@ -12,6 +12,16 @@ $wsPort = getenv('LIGHT_WS_PORT') ?: '8080';
 // Ein Tablet mit alter Kopie wuerde sonst stumm den falschen Port ansprechen.
 header('Cache-Control: no-store, must-revalidate');
 header('Pragma: no-cache');
+
+// Cache-Buster fuer die Mitbringsel. Apache schickt fuer app.css/app.js keine
+// Cache-Header; Chrome haelt sie dann heuristisch tagelang fest - und der
+// Service Worker holt sie ueber denselben HTTP-Cache. Ohne das hier kommt nach
+// einem Update neues Markup mit altem CSS an. Die Dateizeit im Query aendert
+// die URL und beendet das zuverlaessig.
+function asset($datei) {
+  $zeit = @filemtime(__DIR__ . '/' . $datei);
+  return $datei . '?v=' . ($zeit ?: '0');
+}
 ?>
 <!doctype html>
 <html lang="de">
@@ -20,13 +30,23 @@ header('Pragma: no-cache');
   <title>Atrium Light</title>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Atrium">
+  <meta name="application-name" content="Atrium">
+  <meta name="theme-color" content="#131211">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="app-icons/icon-192.png">
+  <link rel="apple-touch-icon" href="app-icons/icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="<?php echo asset('app.css'); ?>">
 </head>
 <body>
 
+<div id="fit">
 <div id="app">
 
   <!-- Kopfzeile: Verbindung, Zustandsquelle, Grandmaster, Blackout -->
@@ -88,7 +108,7 @@ header('Pragma: no-cache');
 
       <div id="live-row">
 
-        <div class="col" style="width:360px;">
+        <div class="col" style="width:386px;">
           <div class="sect-title"><div class="t">Moving Light</div><div class="r">Ist-Position</div></div>
           <div id="pad">
             <div class="grid-h" style="top:25%"></div>
@@ -109,7 +129,7 @@ header('Pragma: no-cache');
           <div id="wash-faders" style="display:flex;gap:8px;"></div>
         </div>
 
-        <div class="col" style="width:624px;">
+        <div class="col" style="flex:1 1 0;">
           <div class="sect-title">
             <div class="t">Positionen</div>
             <div class="r">tippen = anfahren · halten = speichern</div>
@@ -161,7 +181,6 @@ header('Pragma: no-cache');
     </div>
 
   </main>
-</div>
 
 <!-- Verbindung getrennt: der letzte Stand bleibt sichtbar -->
 <div id="offline">
@@ -180,13 +199,37 @@ header('Pragma: no-cache');
 <div id="modal"></div>
 <div id="toast"></div>
 
+</div><!-- /#app -->
+</div><!-- /#fit -->
+
 <script>
   window.LIGHT_CFG = {
     host: "<?php echo htmlspecialchars($wsHost, ENT_QUOTES); ?>",
     port: "<?php echo htmlspecialchars($wsPort, ENT_QUOTES); ?>"
   };
 </script>
-<script src="app.js"></script>
+<script src="<?php echo asset('app.js'); ?>"></script>
+
+<script>
+  // Service Worker: macht das Pult auf dem Tablet installierbar und faengt
+  // kurze Netz-Aussetzer ab. Braucht einen sicheren Kontext, laeuft also nur
+  // ueber https oder auf localhost. Im LAN ueber http bleibt die Seite eine
+  // ganz normale Webseite - das ist kein Fehler, nur kein App-Modus.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+    // Nach einem Update den neuen Worker uebernehmen: einmal neu laden, aber
+    // nur wenn vorher schon einer aktiv war (sonst laedt die Erstinstallation
+    // die Seite grundlos neu).
+    const hatteWorker = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hatteWorker || window.__lightReloading) return;
+      window.__lightReloading = true;
+      location.reload();
+    });
+  }
+</script>
 
 </body>
 </html>
