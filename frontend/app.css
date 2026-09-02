@@ -10,14 +10,26 @@
   --line:    #34302A;
   --line2:   #4A443B;
   --txt:     #ECE7DE;
-  --txt2:    #A49B8C;
-  --txt3:    #6B6357;
+  /* Die Textstufen sind gegen die hellsten Untergruende geprueft (--amberBg).
+     txt2 haelt 5.9:1, txt3 4.8:1 - vorher lag txt3 bei 2.7:1 und war auf dem
+     Tablet aus Armlaenge im dunklen Raum kaum zu lesen. */
+  --txt2:    #BDB3A2;
+  --txt3:    #948B7B;
   --amber:   #E9A63F;
   --amberHi: #F8D9A0;
   --teal:    #4FB3AC;
   --red:     #D6503C;
   --green:   #62A94A;
   --blue:    #4A7FD6;
+
+  /* Die beiden getoenten Untergruende fuer "ausgewaehlt" und "Gefahr". Sie
+     standen vorher achtmal als rohe Hexwerte in der Datei. */
+  --amberBg: #2A2013;
+  --redBg:   #2A1712;
+  /* Rot auf --redBg: --red selbst kommt dort nur auf 4.1:1. Fuer Text
+     deshalb die hellere Stufe, fuer Rahmen und Punkte weiter --red. */
+  --redTxt:  #E0685A;
+  --redDim:  #B87765;
 
   --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
@@ -96,14 +108,27 @@ html, body {
 }
 body.online #conn-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(98,169,74,.13); }
 #conn-label { font: 600 13px/1.2 var(--sans); }
-#conn-sub   { font: 400 11px/1.2 var(--mono); color: var(--txt3); white-space: nowrap; }
-#conn > div { flex: none; }
 
-#statecount { display: flex; flex-direction: column; gap: 3px; }
-#statecount .cap { font: 400 11px/1 var(--mono); color: var(--txt3); }
-#statecount .row { display: flex; align-items: center; gap: 8px; }
-#state-hz  { font: 500 12px/1 var(--mono); color: var(--teal); }
-#state-sub { font: 400 11px/1 var(--sans); color: var(--txt3); }
+#gamepad { display: flex; flex-direction: column; gap: 3px; width: 168px; }
+#gamepad .cap { font: 400 11px/1 var(--mono); color: var(--txt3); }
+#gamepad .row { display: flex; align-items: center; gap: 8px; }
+#gp-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  background: var(--txt3); transition: background .2s, box-shadow .2s;
+}
+/* Geraetenamen sind teils sehr lang - die Kopfzeile darf davon nicht
+   auseinandergezogen werden. */
+#gp-label {
+  font: 400 11px/1.2 var(--sans); color: var(--txt3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Verbunden heisst: der Browser sieht das Pad. Ob Bluetooth steht, kann
+   eine Webseite nicht wissen - die Gamepad-API zeigt das Geraet ausserdem
+   erst nach dem ersten Tastendruck. */
+body.gp-an #gp-dot { background: var(--teal); box-shadow: 0 0 0 4px rgba(79,179,172,.13); }
+body.gp-an #gp-label { color: var(--txt2); }
+/* Waehrend der Controller den Kopf fahert, blinkt die Anzeige mit. */
+body.gp-aktiv #gp-dot { background: var(--amber); box-shadow: 0 0 0 4px rgba(233,166,63,.16); }
 
 #gm-wrap { display: flex; align-items: center; gap: 12px; }
 #gm-wrap .cap { font: 500 12px/1 var(--sans); color: var(--txt2); }
@@ -123,21 +148,41 @@ body.online #conn-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(98,
   transform: translateX(-22px);
 }
 
+/* Blackout: ziehen statt druecken.
+   Der Griff muss ueber die ganze Bahn - ein Fehlgriff bleibt damit folgenlos,
+   und anders als beim Halten sieht man waehrend der Geste, wie weit man ist.
+   Ist der Blackout an, sitzt der Griff rechts und wird nach links gezogen. */
 #blackout {
-  width: 182px; height: 48px; border-radius: 10px;
-  border: 2px solid #5A2B22; background: #2A1712;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   position: relative; overflow: hidden;
+  width: 226px; height: 48px; border-radius: 10px;
+  border: 2px solid #5A2B22; background: var(--redBg);
+  touch-action: none;   /* sonst nimmt der Browser die Wischgeste */
+  flex-shrink: 0;
 }
-#blackout .lbl { display: flex; align-items: center; gap: 8px; color: var(--red); }
-#blackout .lbl span { font: 600 15px/1 var(--sans); letter-spacing: .06em; }
-#blackout .hint { font: 400 10px/1 var(--sans); color: #8A4C3D; }
-#blackout .hold {
-  position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--red);
+
+#bo-text {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font: 600 14px/1 var(--sans); letter-spacing: .08em;
+  color: var(--redTxt); pointer-events: none;
+  /* Waehrend des Ziehens ausblenden - der Griff schiebt sich darueber. */
+  transition: opacity .12s;
 }
+
+#bo-knob {
+  position: absolute; top: 3px; bottom: 3px; left: 3px; width: 52px;
+  border-radius: 8px; background: #4A2018; border: 1px solid #6E362A;
+  color: var(--redTxt);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .18s ease-out;
+}
+/* Waehrend der Finger zieht, folgen Griff und Text ohne Nachlauf. */
+#blackout.zieht #bo-knob,
+#blackout.zieht #bo-text { transition: none; }
+
 body.blackout #blackout { background: var(--red); border-color: var(--red); }
-body.blackout #blackout .lbl { color: #1A0E0B; }
-body.blackout #blackout .hint { color: #1A0E0B; }
+body.blackout #bo-text { color: #1A0E0B; }
+body.blackout #bo-knob { background: #7A2418; border-color: #93382A; color: #FFE9E4; }
 
 /* ---------- Reiter ---------------------------------------------------- */
 
@@ -148,7 +193,8 @@ body.blackout #blackout .hint { color: #1A0E0B; }
   color: var(--txt2); font: 500 13px/1 var(--sans);
   display: flex; align-items: center;
 }
-.tab.active { border-color: var(--amber); background: #2A2013; color: var(--amber); }
+.tab.active { border-color: var(--amber); background: var(--amberBg); color: var(--amber); }
+.tab:active { filter: brightness(1.25); }
 
 /* ---------- Seiten ---------------------------------------------------- */
 
@@ -161,7 +207,7 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 .page.active > #live-row { flex: none; }
 .page.active > #live-row + .col { flex: 1 1 auto; min-height: 0; }
 
-.sect-title { display: flex; justify-content: space-between; align-items: baseline; height: 20px; }
+.sect-title { display: flex; justify-content: space-between; align-items: center; min-height: 20px; }
 .sect-title .t { font: 600 12px/1 var(--sans); letter-spacing: .08em; color: var(--txt2); text-transform: uppercase; }
 .sect-title .r { font: 400 11px/1 var(--mono); color: var(--txt3); }
 
@@ -216,7 +262,7 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
   font: 500 11px/1.25 var(--sans); color: var(--txt2);
   text-align: center; height: 28px; overflow: hidden; width: 100%;
   /* Lange Namen duerfen an vorgegebener Stelle trennen (siehe app.js). */
-  hyphens: manual; -webkit-hyphens: manual;
+  hyphens: manual; -webkit-hyphens: manual; overflow-wrap: anywhere;
 }
 .fader .track { position: relative; width: 100%; flex-grow: 1; }
 .fader .rail {
@@ -238,6 +284,18 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 .fader.locked { opacity: .4; }
 .fader.locked .grip { display: none; }
 .fader.holding { border-color: var(--line2); }
+
+/* Knopf unter dem Presetfader: auf 100 % bzw. auf 0 fahren. Bleibt ruhig -
+   die Presetbank traegt schon genug Amber - und faerbt sich nur waehrend
+   der Fahrt ein. */
+.fader .bump {
+  flex: none; width: 100%; height: 36px; border-radius: 6px;
+  border: 1px solid var(--line2); background: var(--panel2);
+  color: var(--txt2); font: 500 11px/34px var(--sans);
+  text-align: center; white-space: nowrap; overflow: hidden;
+}
+.fader .bump:active { filter: brightness(1.25); }
+.fader.faehrt .bump { border-color: var(--amber); color: var(--amber); }
 
 .fader-empty {
   border: 1px dashed var(--line); border-radius: 10px;
@@ -271,6 +329,7 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
   color: var(--txt3); font: 600 16px/1 var(--sans);
 }
 .pos.held { border-color: var(--amber); }
+.pos:active { filter: brightness(1.25); }
 
 /* ---------- Presetbank ------------------------------------------------ */
 
@@ -286,10 +345,12 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 #prog-pick { flex: none; display: flex; flex-direction: column; gap: 10px; }
 #prog-pick .r { display: flex; align-items: center; gap: 8px; }
 
+/* 36 statt 26 px: unter der 44-px-Regel des Pults, aber die Titelzeile
+   traegt nicht mehr - und 26 px trifft man auf einem Tablet nicht. */
 .mini {
-  height: 26px; padding: 0 10px; border-radius: 6px;
+  height: 36px; padding: 0 14px; border-radius: 6px;
   border: 1px solid var(--line2); background: var(--panel2);
-  color: var(--txt2); font: 500 11px/24px var(--sans);
+  color: var(--txt2); font: 500 12px/34px var(--sans);
 }
 .mini:active { filter: brightness(1.25); }
 
@@ -308,7 +369,7 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 .fx .r  { font: 400 10px/1.2 var(--mono); color: var(--txt3); }
 .fx .belegt { font: 500 10px/1 var(--mono); color: var(--txt3); height: 10px; }
 .fx .belegt.an { color: var(--amber); }
-.fx.sel { border-color: var(--amber); background: #2A2013; }
+.fx.sel { border-color: var(--amber); background: var(--amberBg); }
 .fx.sel .nm { color: var(--amber); }
 .fx:active { filter: brightness(1.25); }
 
@@ -317,7 +378,18 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; gap: 10px;
 }
-.attr-faders { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+/* Raster statt umbrechendem Flex: so teilen sich die Reihen die vorhandene
+   Hoehe, statt dass die zweite unten angeschnitten wird. Wenige Attribute
+   bekommen dadurch hohe, bequeme Fader; viele werden flacher, bleiben aber
+   vollstaendig sichtbar. */
+.attr-faders {
+  flex: 1 1 auto; min-height: 0;
+  display: grid; gap: 6px;
+  grid-template-columns: repeat(auto-fill, 76px);
+  grid-auto-rows: minmax(0, 1fr);
+  justify-content: start;
+}
+.attr-faders .fader { height: 100%; min-height: 0; }
 
 /* Ein Fader, der mehrere Lampen zugleich stellt. */
 .fader.gruppe .name { color: var(--txt); }
@@ -351,11 +423,12 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 }
 .pospick .p .n  { font: 600 10px/1 var(--mono); color: var(--txt3); }
 .pospick .p .nm { font: 500 13px/1.1 var(--sans); color: var(--txt); white-space: nowrap; }
-.pospick .p.sel { border-color: var(--amber); background: #2A2013; }
+.pospick .p.sel { border-color: var(--amber); background: var(--amberBg); }
 .pospick .p.sel .n, .pospick .p.sel .nm { color: var(--amber); }
+.pospick .p:active { filter: brightness(1.25); }
 
 .dlg .box.warn { border-color: var(--red); }
-.dlg .box.warn .cap { color: var(--red); }
+.dlg .box.warn .cap { color: var(--redTxt); }
 
 #prog-bar {
   height: 76px; background: var(--panel); border: 1px solid var(--line);
@@ -370,9 +443,18 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
   color: var(--txt2); font: 500 14px/1 var(--sans);
   display: flex; align-items: center; justify-content: center;
 }
-.btn.primary { border-color: var(--amber); background: #2A2013; color: var(--amber); font-weight: 600; }
-.btn.danger  { border-color: var(--red);   background: #2A1712; color: var(--red);   font-weight: 600; }
+.btn.primary { border-color: var(--amber); background: var(--amberBg); color: var(--amber); font-weight: 600; }
+.btn.danger  { border-color: var(--red);   background: var(--redBg); color: var(--redTxt); font-weight: 600; }
 .btn:active  { filter: brightness(1.25); }
+
+/* Loeschknopf mit Haltebalken. Beschriftung und Balken liegen uebereinander,
+   damit der Knopf beim Fuellen nicht die Zeile verschiebt. */
+.btn.halten { position: relative; overflow: hidden; }
+.btn.halten > span { position: relative; z-index: 1; }
+.btn.halten > i {
+  position: absolute; left: 0; bottom: 0; height: 3px; width: 0;
+  background: var(--redTxt);
+}
 
 /* ---------- Dialoge --------------------------------------------------- */
 
@@ -421,6 +503,32 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 .dlg .hr { height: 1px; background: var(--line); }
 .dlg .foot { font: 400 12px/1.5 var(--sans); color: var(--txt3); }
 
+/* Verbindungsfenster: Zahlenwerte in Monospace, damit die Spalte beim
+   sekuendlichen Auffrischen nicht zappelt. */
+.diag { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
+.dgrp { display: flex; flex-direction: column; gap: 2px; }
+.dcap {
+  font: 400 10px/1 var(--mono); color: var(--txt3);
+  letter-spacing: .08em; padding-bottom: 6px;
+}
+.drow {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  padding: 4px 0; border-bottom: 1px solid var(--line);
+}
+.drow:last-child { border-bottom: none; }
+.drow .k { font: 400 12px/1.3 var(--sans); color: var(--txt2); flex-shrink: 0; }
+.drow .v {
+  font: 500 12px/1.3 var(--mono); color: var(--txt);
+  text-align: right; overflow-wrap: anywhere;
+}
+/* Auffaellig nur, wenn der Wert wirklich ein Problem beschreibt. */
+.drow.warn .v { color: var(--redTxt); }
+.dhint { grid-column: 1 / -1; font: 400 12px/1.4 var(--sans); color: var(--redTxt); }
+
+/* Die Kopfzeile ist ein Schalter, nicht nur eine Anzeige. */
+#conn { cursor: pointer; border-radius: 8px; padding: 4px 6px; margin: -4px -6px; }
+#conn:active { filter: brightness(1.25); }
+
 /* Slot-Auswahl beim Speichern */
 #slotgrid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
 #slotgrid .slot {
@@ -431,8 +539,9 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 #slotgrid .slot .n { font: 600 13px/1 var(--mono); color: var(--txt2); }
 #slotgrid .slot .nm { font: 400 9px/1.1 var(--sans); color: var(--txt3); max-width: 100%; overflow: hidden; text-align: center; }
 #slotgrid .slot.taken { border-color: var(--line2); }
-#slotgrid .slot.sel { border-color: var(--amber); background: #2A2013; }
+#slotgrid .slot.sel { border-color: var(--amber); background: var(--amberBg); }
 #slotgrid .slot.sel .n { color: var(--amber); }
+#slotgrid .slot:active { filter: brightness(1.25); }
 
 /* ---------- Getrennt -------------------------------------------------- */
 
@@ -443,13 +552,15 @@ body.offline main, body.offline #tabs { filter: grayscale(.75) brightness(.55); 
 body.offline main, body.offline #tabs, body.offline #gm-wrap, body.offline #blackout { pointer-events: none; }
 #offline .frame { position: absolute; inset: 0; border: 4px solid var(--red); }
 #offline .band {
-  position: absolute; left: 0; right: 0; top: 0; height: 112px;
-  background: #2A1712; border-bottom: 2px solid var(--red);
+  /* Beginnt unter der Kopfzeile (68 px). Darueber lag es vorher und verdeckte
+     Verbindungspunkt und Blackout - beides will man gerade dann sehen. */
+  position: absolute; left: 0; right: 0; top: 68px; height: 112px;
+  background: var(--redBg); border-bottom: 2px solid var(--red);
   display: flex; align-items: center; padding: 0 24px; gap: 20px;
   pointer-events: auto;
 }
 #offline .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 6px rgba(214,80,60,.2); }
-#offline h3 { margin: 0; font: 600 22px/1.2 var(--sans); }
+#offline h3 { margin: 0; font: 600 22px/1.2 var(--sans); color: var(--txt); }
 #offline .sub { font: 400 14px/1.3 var(--sans); color: #D6A99E; }
 #offline .sub b { font-family: var(--mono); font-weight: 400; }
 #offline .try {
@@ -467,7 +578,7 @@ body.offline main, body.offline #tabs, body.offline #gm-wrap, body.offline #blac
   opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60;
 }
 #toast.on { opacity: 1; }
-#toast.err { border-color: var(--red); color: var(--red); }
+#toast.err { border-color: var(--red); color: var(--redTxt); }
 
 /* ---------- Patch-Editor ---------------------------------------------- */
 
@@ -498,8 +609,8 @@ body.offline main, body.offline #tabs, body.offline #gm-wrap, body.offline #blac
 /* Ganze Zeile oeffnet den Editor; der Winkel sagt, dass da etwas passiert. */
 .ptab .chev { width: 28px; text-align: right; font: 400 16px/1 var(--sans); color: var(--txt3); }
 
-.ptab tr.konflikt td { background: #2A1712; }
-.ptab tr.konflikt .adr { color: var(--red); }
+.ptab tr.konflikt td { background: var(--redBg); }
+.ptab tr.konflikt .adr { color: var(--redTxt); }
 
 #patch-bar {
   height: 76px; flex-shrink: 0; background: var(--panel);
@@ -517,5 +628,27 @@ body.offline main, body.offline #tabs, body.offline #gm-wrap, body.offline #blac
 }
 .typen .ty .l { font: 500 13px/1.2 var(--sans); color: var(--txt); }
 .typen .ty .n { font: 400 10px/1 var(--mono); color: var(--txt3); }
-.typen .ty.sel { border-color: var(--amber); background: #2A2013; }
+.typen .ty.sel { border-color: var(--amber); background: var(--amberBg); }
 .typen .ty.sel .l { color: var(--amber); }
+.typen .ty:active { filter: brightness(1.25); }
+
+/* ---------- Grundlagen ------------------------------------------------ */
+
+/* Sichtbarer Fokus. Das Pult wird mit dem Finger bedient, aber am
+   Entwicklungsrechner und mit angestecktem Keyboard soll erkennbar sein,
+   worauf eine Eingabe geht. */
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+/* Wer Bewegung reduziert haben will, bekommt sie reduziert. Betrifft die
+   Ueberblendungen der Anzeigen und die Interpolation des Pad-Punktes; die
+   Positionsanzeige springt dann eben mit 10 Hz statt zu gleiten. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

@@ -53,19 +53,16 @@ function asset($datei) {
   <div id="header">
     <div id="conn">
       <div id="conn-dot"></div>
-      <div>
-        <div id="conn-label">Verbinde …</div>
-        <div id="conn-sub">atrium-light · Universe 0</div>
-      </div>
+      <div id="conn-label">Verbinde …</div>
     </div>
 
     <div class="hdr-sep"></div>
 
-    <div id="statecount">
-      <div class="cap">Zustand vom Server</div>
+    <div id="gamepad">
+      <div class="cap">Controller</div>
       <div class="row">
-        <div id="state-hz">10/s</div>
-        <div id="state-sub">laufend aufgefrischt</div>
+        <div id="gp-dot"></div>
+        <div id="gp-label">nicht verbunden</div>
       </div>
     </div>
 
@@ -91,13 +88,13 @@ function asset($datei) {
 
     <div class="hdr-sep"></div>
 
+    <!-- Schieben statt Druecken: der Griff muss ueber die ganze Bahn
+         gezogen werden, damit nichts versehentlich schwarz wird. -->
     <div id="blackout">
-      <div class="lbl">
+      <div id="bo-text">BLACKOUT ▸</div>
+      <div id="bo-knob">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"></path></svg>
-        <span>BLACKOUT</span>
       </div>
-      <div class="hint" id="blackout-hint">2 s halten</div>
-      <div class="hold" id="blackout-hold"></div>
     </div>
   </div>
 
@@ -142,7 +139,7 @@ function asset($datei) {
       <div class="col">
         <div class="sect-title">
           <div class="t">Presets</div>
-          <div class="r">16 Plätze · lang drücken zum Speichern</div>
+          <div class="r">16 Plätze · lang drücken: leerer Platz belegen, Name bearbeiten</div>
         </div>
         <div id="presetbank"></div>
       </div>

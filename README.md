@@ -14,29 +14,45 @@ cd gyra-light-control
 ```
 
 Das war alles. `start.sh` legt bei Bedarf die `.env` an, baut die Images,
-startet alles im Hintergrund und nennt am Ende die Adressen.
+startet alles im Hintergrund — **HTTPS immer eingeschlossen** — holt das
+Wurzelzertifikat aus dem Container und nennt am Ende die Adressen.
 
 | Dienst | Adresse |
 |---|---|
-| Pult (Tablet/Browser) | `http://<Server-IP>` |
+| Pult (Tablet/Browser) | `https://<LIGHT_HOST>` |
 | Art-Net-Monitor | `http://<Server-IP>:8082` |
-| WebSocket | `ws://<Server-IP>:8080` |
 | MariaDB | `<Server-IP>:3307` (`gyra` / `gyra`) |
+| Pult ohne HTTPS (kein App-Modus) | `http://<Server-IP>` |
 
-Das Pult liegt bewusst auf Port 80, damit am Tablet die nackte IP
-reicht. Ist 80 belegt, in der `.env` `WEB_PORT=8081` setzen –
-`start.sh` nennt danach die passende Adresse.
+HTTPS laeuft mit, weil Android aus dem Pult nur ueber einen sicheren
+Ursprung eine echte App baut (Vollbild ohne Adressleiste). Ueber `http`
+bleibt es eine Webseite mit Browserleiste — erreichbar, aber nicht als App.
 
-> `start.sh` prüft nach dem Start, ob auf dem Web-Port wirklich das Pult
-> antwortet, und warnt sonst. Das ist kein Luxus: ein zweiter Webserver
-> kann den Port belegen, ohne dass `docker compose` etwas meldet — auf
-> dem Windows-Entwicklungsrechner tut das ein Apache in WSL.
+**Einmal in die `.env`:** `LIGHT_HOST` auf einen im LAN aufloesbaren
+**Hostnamen** setzen, nicht auf eine IP:
+
+```ini
+LIGHT_HOST=atrium.fritz.box
+```
+
+Ohne diesen Eintrag laeuft alles ueber die LAN-IP weiter — nur startet die
+installierte App dann in Chrome statt im Vollbild, weil Android eine IP in
+der Link-Verwaltung nicht zuordnen kann. `start.sh` weist darauf hin.
+`LIGHT_ALT_HOST` (die IP) kommt automatisch als Zweitname ins Zertifikat,
+damit der alte Weg waehrend der Umstellung erreichbar bleibt.
+
+> `start.sh` prueft nach dem Start, ob unter HTTPS wirklich das Pult
+> antwortet und ob der WebSocket mit `101` upgraded, und warnt sonst. Das
+> ist kein Luxus: ein zweiter Webserver kann den Port belegen, ohne dass
+> `docker compose` etwas meldet — auf dem Windows-Entwicklungsrechner tut
+> das ein Apache in WSL.
 
 Weitere Befehle:
 
 ```bash
 ./start.sh logs     # Logs mitlesen
 ./start.sh stop     # anhalten
+./start.sh ca       # Wurzelzertifikat neu ausgeben (fuers Tablet)
 ./start.sh reset    # Datenbank loeschen und aus schema.sql + seed.test.sql neu aufbauen
 ```
 
@@ -80,7 +96,7 @@ sudo ufw allow 8080/tcp   # WebSocket
 
 - `start.sh` – startet/stoppt die komplette Umgebung (siehe Schnellstart)
 - `frontend/manifest.webmanifest`, `frontend/sw.js`, `frontend/app-icons/` – PWA-Teile (Installation als App, Vollbild, Offline-Fallback)
-- `frontend/index.php` – Tablet-Weboberfläche (W3.CSS, Touch-Pad, Zwei-Finger-Zoom/Dimmer, Gamepad, Preset-/Programmer-Fader, ML-Positionsbuttons, Zoom/Dimmer-Fader und Recall-Synchronisierung)
+- `frontend/index.php` – Tablet-Weboberfläche (Touch-Pad, Zwei-Finger-Zoom/Dimmer, Controller, Preset-/Programmer-Fader, ML-Positionen, Zoom/Dimmer-Fader)
 - `backend/server.js` – WebSocket-, MySQL- und Art-Net-Server mit HTP-Mischung, ML-Steuerung, Positionsspeicherung und robustem Start/Fehlerhandling
 - `backend/package.json` – benötigte Node-Abhängigkeiten
 - `.env.example` – vollstaendige Konfiguration der Docker-Umgebung; jeder Wert ist optional und entspricht dem Default
@@ -209,6 +225,153 @@ wenn selbst 1280 px nicht mehr passen, bleibt oben und unten ein Rand.
 Wer Masse aendert, aendert sie in diesem 1280-x-800-Raster - nicht in
 Prozent oder `vw`/`vh`, die beziehen sich auf den Schirm, nicht auf die Buehne.
 
+### Blackout: ziehen statt druecken
+
+Der Blackout wird geschaltet, indem der Griff ueber die ganze Bahn gezogen
+wird — links nach rechts zum Einschalten, rechts nach links zum Aufheben.
+Weniger als `BO_SCHWELLE` (80 % des Weges) federt zurueck und schaltet
+nichts.
+
+Vorher war es ein Druck von 2 s. Beides sichert gegen den Fehlgriff, das
+Ziehen hat aber zwei Vorteile: man sieht waehrend der Geste, wie weit man
+ist, und kann bis zuletzt abbrechen, indem man zurueckzieht. Beim Halten
+half nur noch loslassen, und ob man lange genug gehalten hatte, sah man erst
+am Ergebnis.
+
+Die Ruhelage des Griffs folgt dem Serverzustand, nicht der eigenen Geste —
+schaltet ein zweites Geraet, springt der Griff mit.
+
+### Verbindungsfenster
+
+Ein Tippen auf die Verbindungsanzeige links oben oeffnet ein Fenster mit dem,
+was sich messen laesst — kein Schmuckstatus: Stand der geladenen Oberflaeche
+(aus dem `?v=` der Skriptadresse), Service Worker, Anzeige und Massstab,
+Controller, WebSocket-Adresse und -Zustand, Protokollversion beider Seiten,
+Alter des letzten Zustands, gemessene Empfangsrate, verworfene Pakete. Vom
+Server ueber `diag.request` (PROTOKOLL.md §3.8): Version, Laufzeit, Zahl der
+verbundenen Geraete, Takte, Datenbank (per `SELECT 1` wirklich gefragt) und
+die Art-Net-Ausgabe mit Ziel, Universe, gesendeten Paketen, Alter des letzten
+Pakets und Sendefehlern.
+
+Rot wird ein Wert nur, wenn er ein Problem beschreibt: Socket nicht offen,
+Protokollversionen verschieden, Zustand aelter als 3 s, verworfene Pakete,
+Datenbank weg, Art-Net stumm oder mit Fehlern.
+
+Drei Schalter: **Seite neu laden**, **Zwischenspeicher leeren** (meldet den
+Service Worker ab, loescht die Caches und laedt neu - der Weg, wenn das
+Tablet nach einem Update am alten Stand haengt) und **Neu verbinden**
+(schliesst den Socket, der bestehende Wiederverbindungspfad uebernimmt).
+
+Nebenbei behoben: Die Kopfzeile zeigte unter "Verbunden" die fest
+einprogrammierte Zeichenkette `atrium-light · Universe 0` — Universe 0 stand
+dort auch dann, wenn der Patch auf einem anderen laege. Die Zeile ist weg;
+die tatsaechliche Adresse steht im Verbindungsfenster.
+
+### Fader: relative Bedienung
+
+Ein Fader folgt der **Bewegung** des Fingers, nicht seiner Position. Anfassen
+und ziehen aendert den Wert um den zurueckgelegten Weg, gemessen an der Hoehe
+der Bahn; ein Antippen aendert nichts, und erst ab `FADER_SLOP` (6 px) gilt
+eine Bewegung ueberhaupt als solche.
+
+Vorher wurde der Wert aus dem Abstand zur Bahnoberkante gerechnet. Das hatte
+zwei Fehler zugleich: ein Griff ausserhalb der Bahn - Name, Zahlenzeile,
+Rand, Zwischenraum - ergab Werte ueber 1 bzw. unter 0 und liess den Fader
+auf 100 % oder 0 % springen. Schraenkte man die Bedienung zur Abhilfe auf die
+Bahn ein, blieb jeder Griff daneben wirkungslos, und auf dem Tablet trifft
+eine Fingerkuppe oft daneben. Relativ gerechnet faellt beides weg.
+
+Gemessen wird ueber `getBoundingClientRect()`, nicht ueber `clientHeight`:
+Zeigerkoordinaten zaehlen in Bildschirmpixeln, die Buehne ist aber skaliert.
+
+Ausnahme: Bei den Presetfadern ist der **Name** allein fuer den langen Druck
+da (Umbenennen) und stellt keinen Wert.
+
+### Knopf unter den Presetfadern
+
+Unter jedem belegten Presetfader der Live-Ansicht sitzt ein Knopf, der den
+Fader in `BUMP_FADE_MS` (1 s) fahren laesst: steht er auf 0, geht es auf
+100 %, sonst auf 0. Die Beschriftung nennt das Ziel (`▲ Voll` / `▼ Aus`) und
+folgt auch Aenderungen, die von einem anderen Geraet kommen.
+
+Der Fader schickt die Fahrt in denselben Stufen wie beim Ziehen (`FADER_SEND_MS`,
+rund 20 pro Sekunde) und setzt den Endwert exakt. Waehrend der Fahrt gilt der
+eigene Wert, sonst schreibt der 10-Hz-Zustand vom Server den aelteren Stand
+zurueck. Ein zweiter Druck haelt die Fahrt an, ein Griff an den Fader
+ebenfalls - der Finger gewinnt immer.
+
+Leere Plaetze haben keinen Knopf: dort gibt es keinen Fader und nichts zu
+fahren. Gilt nur fuer die Presetbank; Wash-Fader und Programmer-Attribute
+bekommen ihn bewusst nicht.
+
+### Gestaltungsregeln der Oberflaeche
+
+Die Bildsprache kommt aus `design/` und bleibt: dunkel-warmes Neutral, IBM
+Plex Sans/Mono, Amber als einziger Akzent. Dazu ein paar Regeln, die beim
+Aendern einzuhalten sind, weil sie sich sonst schleichend aufloesen:
+
+- **Farben nur ueber Tokens.** Die getoenten Untergruende fuer "ausgewaehlt"
+  und "Gefahr" heissen `--amberBg` und `--redBg`; rohe Hexwerte gehoeren
+  nicht in die Regeln.
+- **Rot auf `--redBg` immer als `--redTxt`.** `--red` selbst kommt dort nur
+  auf 4.1:1. `--red` bleibt fuer Rahmen und Punkte, wo Textkontrast nicht
+  gilt.
+- **Textstufen sind gegen den hellsten Untergrund geprueft** (`--amberBg`):
+  `--txt2` haelt 5.9:1, `--txt3` 4.8:1. Wer sie abdunkelt, macht das Pult
+  aus Armlaenge im dunklen Raum unlesbar.
+- **Zerstoerende Aktionen verlangen Halten**, nie einen einfachen Druck -
+  siehe `loeschKnopf()`. Alles andere reagiert bewusst schon auf
+  `pointerdown`, weil bei Fadern und Pad die Latenz zaehlt.
+- **44 px ist die Untergrenze fuer Trefferziele.** Bewusste Ausnahmen:
+  Reiter und Grandmaster-Fader (40 px), Patch-Zeilen (42 px, dafuer ueber
+  die volle Breite), `Alle`/`Keine` (36 px).
+
+### Controller (Gamepad)
+
+Ein per Bluetooth gekoppelter Controller bedient immer das Moving Light,
+unabhaengig von der geoeffneten Seite. Belegung (Standard-Mapping):
+
+| Bedienelement | Wirkung |
+|---|---|
+| Linker Stick | Pan/Tilt schnell |
+| Rechter Stick | Pan/Tilt langsam (beide addieren sich) |
+| L1 / R1 gehalten | Dimmer runter / hoch, voller Weg in `GP_DIM_HOLD_SEC` (3 s) |
+| L1 / R1 doppelt getippt | Rampe auf Minimum / Maximum in `GP_DIM_TAP_SEC` (1 s) |
+| L2 / R2 | Zoom enger / weiter, analog zur Druckstaerke |
+| Steuerkreuz | Position 1-4; oben ist 1, dann im Uhrzeigersinn |
+
+Alle Zeiten und Faktoren stehen als `GP_*`-Konstanten oben in
+`frontend/app.js`.
+
+Der Controller faehrt mit einer **festen Empfindlichkeit** von
+`GP_SENSITIVITY` (25 %) und ist vom Pad-Empfindlichkeits-Fader unberuehrt.
+Der Stickweg ist bereits die Dosierung; eine zweite, am Bildschirm
+verstellte Skala darueber macht den Controller unberechenbar. Technisch
+geht der Wert als optionales Feld `sensitivity` in `ml.move` mit
+(PROTOKOLL.md §3.2) — das Touch-Pad laesst es weg und bekommt damit
+weiterhin die eingestellte Empfindlichkeit.
+
+Die Kopfzeile zeigt links neben den Reitern, ob der Controller da ist. Zwei
+Dinge, die man dabei wissen muss:
+
+- Angezeigt wird, ob **der Browser** das Pad sieht. Ob die Bluetooth-Kopplung
+  steht, kann eine Webseite nicht feststellen.
+- Die Gamepad-API gibt ein Geraet aus Datenschutzgruenden erst nach dem
+  **ersten Tastendruck** preis. Nach dem Neuladen steht dort also
+  "nicht verbunden", bis einmal eine Taste gedrueckt wurde. Das ist kein
+  Fehler.
+
+Meldet der Browser ein anderes als das Standard-Mapping, steht das in der
+Kopfzeile ("fremde Belegung") - die Tastennummern in `GP_B` stimmen dann
+nicht und muessen fuer das Geraet angepasst werden.
+
+Pan und Tilt laufen ueber `ml.move`, also ueber eine Geschwindigkeit mit
+Totmann-Schalter im Server (PROTOKOLL.md §3.2). Solange ein Stick ausgelenkt
+ist, frischt der Client mit `MOVE_HZ` auf; beim Loslassen geht genau eine
+Null raus. Dimmer und Zoom fuehrt der Controller waehrend der Bedienung
+selbst und uebernimmt danach wieder den Serverwert - sonst schreibt der
+10-Hz-Zustand den aelteren Wert zurueck und es zittert.
+
 ### Patch als Tabelle
 
 Der Patch steht als Tabelle: Adresse, Name, Bauart, Kanalzahl, Universe.
@@ -291,12 +454,16 @@ reicht ein Aufruf von `http://<name>/` im Browser.
 bisherige Weg waehrend der Umstellung erreichbar bleibt. Beide Werte muessen
 sich unterscheiden; Caddy stellt fuer jeden ein eigenes Zertifikat aus.
 
-**2. Starten** (das Profil `https` ist optional, ohne es bleibt alles wie
-bisher):
+**2. Starten.** `./start.sh` bringt HTTPS immer mit hoch, holt das
+Wurzelzertifikat aus dem Container und prueft danach, ob die Seite und der
+WebSocket ueber HTTPS wirklich antworten:
 
 ```bash
-docker compose --profile https up -d
+./start.sh
 ```
+
+Von Hand geht auch `docker compose --profile https up -d`; dann muessen
+`LIGHT_HOST`, `LIGHT_ALT_HOST` und `LIGHT_SNI` selbst gesetzt sein.
 
 Das Pult liegt dann zusaetzlich auf `https://<LIGHT_HOST>/`. Port 80 behaelt
 das Frontend im Klartext; wer die Umleitung http→https auf 80 will, rueckt

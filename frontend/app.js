@@ -18,8 +18,11 @@ const PROTOCOL = 2;
 /* Nur waehrend einer Beruehrung, und hoechstens so oft: */
 const MOVE_HZ        = 20;    // ml.move-Auffrischung (Server-Totmann: 400 ms)
 const FADER_SEND_MS  = 50;    // Drossel fuer Fader-Aenderungen
+const BUMP_FADE_MS   = 1000;  // Knopf unter dem Presetfader: Fahrt auf 0 % / 100 %
 const POS_HOLD_MS    = 600;   // Halten = speichern
-const BLACKOUT_HOLD  = 2000;  // Blackout gegen Fehlgriff sichern
+const HOLD_SLOP      = 12;    // Zittern, das ein Halten noch nicht abbricht (px)
+const FADER_SLOP     = 6;     // Zittern, das den Faderwert noch nicht bewegt (px)
+const DELETE_HOLD    = 800;   // Loeschen gegen Fehlgriff sichern
 const PAD_DEADZONE   = 0.06;
 
 /* Zwei-Finger-Geste. Zoom und Dimmer liegen auf derselben Beruehrung und
@@ -43,6 +46,11 @@ let library  = { presets: [], positions: [] };
 let srv      = null;   // letzte state-Nachricht
 let lastSeq  = -1;
 let lastStateAt = null;
+let helloAt = null;            // Zeitpunkt des Handshakes
+let serverProtocol = null;
+let statesSeit = [];           // Zeitstempel der letzten state-Nachrichten
+let verworfeneStates = 0;      // zu alte/doppelte Pakete (PROTOKOLL.md §4.3)
+let letzteDiag = null;         // letzte Antwort auf diag.request
 
 const channelById = new Map();
 let lockedChannelIds = new Set();     // gesperrt dargestellt
@@ -61,6 +69,7 @@ const el = (tag, cls, txt) => {
   return n;
 };
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const clamp   = (v, min, max) => Math.max(min, Math.min(max, v));
 
 /* setPointerCapture wirft laut Spezifikation, wenn die Pointer-ID nicht mehr
  * aktiv ist - bei Mehrfingerbedienung durchaus moeglich. Ohne Absicherung
@@ -99,10 +108,9 @@ function wsUrl() {
 
 function connect() {
   clearTimeout(reconnectTimer);
-  // Ziel sichtbar machen: bei Verbindungsproblemen ist die wichtigste
-  // Frage, welche Adresse das Geraet ueberhaupt anspricht.
+  // Die Adresse steht nicht mehr in der Kopfzeile, sondern im
+  // Verbindungsfenster (Tippen auf die Anzeige).
   const url = wsUrl();
-  $('#conn-sub').textContent = url;
   let sock;
   try {
     sock = new WebSocket(url);
@@ -167,7 +175,8 @@ function handle(msg) {
       document.body.classList.add('online');
       document.body.classList.remove('offline');
       $('#conn-label').textContent = 'Verbunden';
-      $('#conn-sub').textContent = 'atrium-light · Universe 0';
+      helloAt = new Date();
+      serverProtocol = msg.protocol;
       break;
 
     case 'patch':
@@ -185,8 +194,10 @@ function handle(msg) {
 
     case 'state':
       // Aeltere Pakete verwerfen (PROTOKOLL.md §4.3).
-      if (typeof msg.seq === 'number' && msg.seq <= lastSeq) return;
+      if (typeof msg.seq === 'number' && msg.seq <= lastSeq) { verworfeneStates++; return; }
       lastSeq = msg.seq;
+      statesSeit.push(performance.now());
+      if (statesSeit.length > 60) statesSeit.shift();
       srv = msg;
       lastStateAt = new Date();
       applyState(msg);
@@ -198,6 +209,11 @@ function handle(msg) {
 
     case 'reloaded':
       toast('Konfiguration neu geladen.');
+      break;
+
+    case 'diag':
+      letzteDiag = msg;
+      zeichneDiag();
       break;
   }
 }
@@ -246,7 +262,8 @@ function indexPatch() {
 function makeFader(opts) {
   const {
     name, value = 0, width = 72, height = null,
-    tint = null, locked = false, sub = false, onChange = null, onHold = null
+    tint = null, locked = false, sub = false, onChange = null, onHold = null,
+    bump = false
   } = opts;
 
   const root = el('div', 'fader' + (locked ? ' locked' : ''));
@@ -263,10 +280,15 @@ function makeFader(opts) {
   const valEl  = el('div', 'val', pct(value));
   const subEl  = sub ? el('div', 'sub', '0') : null;
 
+  // Knopf unter dem Fader: faehrt in BUMP_FADE_MS auf 100 %, wenn der Fader
+  // auf 0 steht, sonst auf 0. Gesperrte Fader bekommen keinen.
+  const bumpEl = (bump && !locked && onChange) ? el('div', 'bump') : null;
+
   if (tint) fill.style.background = tint;
   track.append(rail, fill, grip);
   root.append(nameEl, track, valEl);
   if (subEl) root.appendChild(subEl);
+  if (bumpEl) root.appendChild(bumpEl);
 
   const api = {
     el: root, value, holding: false,
@@ -287,32 +309,139 @@ function makeFader(opts) {
     fill.style.height = y + 'px';
     grip.style.bottom = Math.max(-4, Math.min(h - 26, y - 15)) + 'px';
     valEl.textContent = pct(api.value);
+    if (bumpEl) {
+      // Die Beschriftung nennt das Ziel, nicht die Bedienung. Sie folgt auch
+      // Aenderungen vom Server, deshalb steht sie hier und nicht im Klick.
+      const hoch = api.value <= 0.001;
+      bumpEl.textContent = hoch ? '▲ Voll' : '▼ Aus';
+    }
+  }
+
+  /* Fahrt des Knopfes. Waehrend sie laeuft, gilt der eigene Wert: sonst
+   * schreibt der Zustand vom Server (10 Hz) den aelteren Stand zurueck und
+   * der Griff zappelt - dieselbe Sperre wie beim Finger auf dem Fader. */
+  let fadeRaf = null;
+
+  function fadeStoppen() {
+    if (fadeRaf === null) return;
+    cancelAnimationFrame(fadeRaf);
+    fadeRaf = null;
+    api.holding = false;
+    root.classList.remove('faehrt');
+    paint();
+  }
+
+  function fadeStarten() {
+    const von  = api.value;
+    const ziel = von > 0.001 ? 0 : 1;
+    const start = performance.now();
+    let gesendet = 0;
+
+    api.holding = true;
+    root.classList.add('faehrt');
+
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - start) / BUMP_FADE_MS);
+      api.value = von + (ziel - von) * p;
+      paint();
+
+      const jetzt = performance.now();
+      if (p >= 1 || jetzt - gesendet >= FADER_SEND_MS) {
+        gesendet = jetzt;
+        onChange(api.value);
+      }
+      if (p < 1) {
+        fadeRaf = requestAnimationFrame(tick);
+      } else {
+        fadeRaf = null;
+        api.holding = false;
+        root.classList.remove('faehrt');
+        paint();
+      }
+    };
+    fadeRaf = requestAnimationFrame(tick);
+  }
+
+  if (bumpEl) {
+    bumpEl.addEventListener('pointerdown', (ev) => {
+      // Nicht zugleich den Fader selbst anfassen - der liegt darunter und
+      // haette sonst seinen Halte-Timer fuer den Preset-Dialog gestartet.
+      ev.stopPropagation();
+      // Ein zweiter Druck waehrend der Fahrt haelt sie an, wie ein Griff an
+      // einen laufenden Fader.
+      if (fadeRaf !== null) fadeStoppen();
+      else fadeStarten();
+    });
   }
 
   if (!locked) {
     let lastSent = 0, holdTimer = null, moved = false;
-
-    const valueFromEvent = (ev) => {
-      const r = track.getBoundingClientRect();
-      return clamp01(1 - (ev.clientY - r.top) / r.height);
-    };
+    let nameGriff = false, startX = 0, startY = 0, startWert = 0;
 
     root.addEventListener('pointerdown', (ev) => {
+      // Der Knopf unter dem Fader bedient sich selbst.
+      if (bumpEl && bumpEl.contains(ev.target)) return;
+
+      startX = ev.clientX;
+      startY = ev.clientY;
+      startWert = api.value;
+
+      // Ueber dem Namen wird umbenannt, nicht gestellt.
+      if (onHold && ev.target === nameEl) {
+        capture(root, ev);
+        nameGriff = true;
+        fadeStoppen();
+        holdTimer = setTimeout(() => { if (nameGriff) onHold(); }, POS_HOLD_MS);
+        return;
+      }
+
       capture(root, ev);
+      fadeStoppen();          // Griff gewinnt gegen eine laufende Fahrt
       api.holding = true;
       moved = false;
       root.classList.add('holding');
-      if (onHold) holdTimer = setTimeout(() => { if (!moved) onHold(); }, POS_HOLD_MS);
-      // Kein sofortiger Sprung auf die Fingerposition: das erste
-      // pointermove uebernimmt. So laesst sich der Fader auch nur
-      // "anfassen", ohne den Wert zu veraendern.
     });
 
     root.addEventListener('pointermove', (ev) => {
+      if (nameGriff) {
+        // Ein Finger liegt nie ganz still. Erst ab HOLD_SLOP gilt das als
+        // Wandern und bricht das Halten ab.
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > HOLD_SLOP) {
+          clearTimeout(holdTimer);
+          nameGriff = false;
+        }
+        return;
+      }
       if (!api.holding) return;
-      moved = true;
-      clearTimeout(holdTimer);
-      api.value = valueFromEvent(ev);
+
+      /* Der Wert folgt der Fingerbewegung, nicht der Fingerposition.
+       *
+       * Vorher wurde er aus dem Abstand zur Bahnoberkante gerechnet. Das hat
+       * zwei Fehler zugleich erzeugt: ein Druck ausserhalb der Bahn ergab
+       * Werte ueber 1 bzw. unter 0 und liess den Fader springen, und um das
+       * zu verhindern, musste die Bedienung auf die Bahn eingeschraenkt
+       * werden - womit jeder Griff in Rand, Abstand oder Zahlenzeile
+       * wirkungslos blieb. Relativ gerechnet faellt beides weg: die ganze
+       * Kachel ist wieder anfassbar, und ein Antippen aendert nichts.
+       *
+       * getBoundingClientRect statt clientHeight, weil clientY in
+       * Bildschirmpixeln zaehlt und die Buehne skaliert ist. */
+      let dy = startY - ev.clientY;
+      if (!moved) {
+        if (Math.abs(dy) < FADER_SLOP) return;
+        // Ab hier zaehlt die Bewegung - und zwar von hier aus. Ohne diesen
+        // Nullpunkt spraenge der Wert beim Losfahren um die Schwelle.
+        moved = true;
+        clearTimeout(holdTimer);
+        // Schwelle einmalig abziehen, statt den Nullpunkt zu versetzen: so
+        // springt der Wert beim Losfahren nicht, und eine Bewegung, die die
+        // Schwelle in einem Schritt ueberspringt, geht nicht verloren.
+        startY += dy > 0 ? -FADER_SLOP : FADER_SLOP;
+        dy = startY - ev.clientY;
+      }
+
+      const hoehe = track.getBoundingClientRect().height || 1;
+      api.value = clamp01(startWert + dy / hoehe);
       paint();
       const now = performance.now();
       if (onChange && now - lastSent >= FADER_SEND_MS) {
@@ -322,8 +451,9 @@ function makeFader(opts) {
     });
 
     const end = () => {
-      if (!api.holding) return;
       clearTimeout(holdTimer);
+      nameGriff = false;
+      if (!api.holding) return;
       api.holding = false;
       root.classList.remove('holding');
       if (moved && onChange) onChange(api.value);   // Endwert sicher senden
@@ -397,6 +527,7 @@ function setupPad() {
   function startMoveLoop() {
     if (moveTimer) return;
     moveTimer = setInterval(() => {
+      // Ohne Feld: es gilt die eingestellte Pad-Empfindlichkeit.
       send({ type: 'ml.move', pan_speed: vx, tilt_speed: vy });
     }, 1000 / MOVE_HZ);
   }
@@ -551,6 +682,7 @@ function buildPresetBank() {
     }
     const f = makeFader({
       name: p.name,
+      bump: true,
       value: (srv && srv.preset_levels && srv.preset_levels[p.id]) || 0,
       onChange: (v) => send({ type: 'preset.fader', preset_id: p.id, level: v }),
       onHold: () => openPresetDialog(p)
@@ -559,6 +691,42 @@ function buildPresetBank() {
     bank.appendChild(f.el);
     f.setValue(f.value, true);
   }
+}
+
+/* Zerstoerender Knopf: loest erst nach Halten aus, mit sichtbarem Balken.
+ *
+ * Alles andere im Pult reagiert bewusst auf pointerdown - bei Fadern und
+ * Pad zaehlt jede Millisekunde. Fuer Loeschen ist das aber falsch: die
+ * Aktion liefe los, sobald der Finger aufsetzt, und liesse sich nicht mehr
+ * abbrechen. Dieselbe Sicherung benutzt der Blackout-Knopf. */
+function loeschKnopf(fn, ms = DELETE_HOLD) {
+  const beschriftung = 'Löschen · halten';
+  const b = el('div', 'btn danger halten');
+  const label = el('span', null, beschriftung);
+  const bar = el('i');
+  b.append(label, bar);
+
+  let timer = null, raf = null, start = 0;
+  const abbrechen = () => {
+    clearTimeout(timer); cancelAnimationFrame(raf);
+    bar.style.width = '0';
+  };
+
+  b.addEventListener('pointerdown', (ev) => {
+    capture(b, ev);
+    start = performance.now();
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - start) / ms);
+      bar.style.width = (p * 100) + '%';
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    timer = setTimeout(() => { abbrechen(); fn(); }, ms);
+  });
+  b.addEventListener('pointerup', abbrechen);
+  b.addEventListener('pointercancel', abbrechen);
+  b.addEventListener('pointerleave', abbrechen);
+  return b;
 }
 
 // Langer Druck auf einem Element, das kein Fader ist.
@@ -810,8 +978,11 @@ function buildAttributes() {
   for (const [role, ids] of rollen) {
     const locked = ids.every(id => lockedChannelIds.has(id));
     const fader = makeFader({
+      // Keine feste Hoehe: der Streifen teilt die Flaeche auf seine Reihen
+      // auf. Bei 196 px fest wurde die zweite Reihe angeschnitten, sobald
+      // eine Auswahl mehr als rund 15 Attribute hatte.
       name: ROLE_LABEL[role] || role,
-      value: 0, width: 76, height: 196,
+      value: 0, width: 76,
       tint: ROLE_TINT[role] || null,
       locked, sub: true,
       onChange: (v) => {
@@ -824,6 +995,7 @@ function buildAttributes() {
     fader.setSub('0');
     progFaders.set(role, { fader, channels: ids });
     streifen.appendChild(fader.el);
+    fader.setValue(fader.value, true);
   }
 
   body.appendChild(streifen);
@@ -879,11 +1051,16 @@ function applyState(s) {
 
   if (zoomFader) zoomFader.setValue(s.ml.zoom);
   if (dimFader)  dimFader.setValue(s.ml.dimmer);
+  // Der Controller fuehrt Dimmer und Zoom waehrend der Bedienung selbst.
+  // Ausserhalb davon uebernimmt er den Serverwert, damit die naechste
+  // Taste dort weitermacht, wo das Licht wirklich steht.
+  if (!gp.dim.fuehrt)  gp.dim.wert  = s.ml.dimmer;
+  if (!gp.zoom.fuehrt) gp.zoom.wert = s.ml.zoom;
   if (sensFader) sensFader.setValue(s.pad_sensitivity);
   if (gmFader)   gmFader.setValue(s.master.grandmaster);
 
   document.body.classList.toggle('blackout', !!s.master.blackout);
-  $('#blackout-hint').textContent = s.master.blackout ? 'aktiv · zum Lösen halten' : '2 s halten';
+  blackoutSetzen();
 
   for (const [id, f] of presetFaders) {
     f.setValue((s.preset_levels && s.preset_levels[id]) || 0);
@@ -936,7 +1113,11 @@ function openModal(node) {
   m.appendChild(node);
   m.classList.add('on');
 }
-function closeModal() { $('#modal').classList.remove('on'); $('#modal').textContent = ''; }
+function closeModal() {
+  diagOffen = false;
+  $('#modal').classList.remove('on');
+  $('#modal').textContent = '';
+}
 
 function dialog(title, text) {
   const d = el('div', 'dlg');
@@ -976,8 +1157,7 @@ function openPresetDialog(p) {
 
   const row = el('div', 'row');
 
-  const del = el('div', 'btn danger', 'Löschen');
-  del.addEventListener('pointerdown', () => {
+  const del = loeschKnopf(() => {
     send({ type: 'preset.delete', preset_id: p.id });
     closeModal();
   });
@@ -1091,8 +1271,7 @@ function askOverwrite(errMsg) {
   const cancel = el('div', 'btn', 'Abbrechen');
   cancel.addEventListener('pointerdown', closeModal);
 
-  const del = el('div', 'btn danger', 'Löschen');
-  del.addEventListener('pointerdown', () => {
+  const del = loeschKnopf(() => {
     send({ type: 'preset.delete', preset_id: pid });
     closeModal();
   });
@@ -1138,8 +1317,7 @@ function openPositionDialog(p) {
   fadeField.appendChild(st);
 
   const row = el('div', 'row');
-  const del = el('div', 'btn danger', 'Löschen');
-  del.addEventListener('pointerdown', () => { send({ type: 'position.delete', slot: p.slot }); closeModal(); });
+  const del = loeschKnopf(() => { send({ type: 'position.delete', slot: p.slot }); closeModal(); });
 
   // Verweisende Presets benennen, bevor geloescht wird.
   if (p.used_by && p.used_by.length) {
@@ -1243,7 +1421,7 @@ function buildPatchList() {
   $('#patch-count').textContent =
     `${fixtures.length} ${fixtures.length === 1 ? 'Fixture' : 'Fixtures'} · ${patch.channels.length} Kanäle`;
   $('#patch-warn').innerHTML = konflikte.size
-    ? `<span style="color:var(--red)">Adressüberschneidung: ${[...konflikte].join(', ')}</span>`
+    ? `<span style="color:var(--redTxt)">Adressüberschneidung: ${[...konflikte].join(', ')}</span>`
     : '&nbsp;';
 }
 
@@ -1315,8 +1493,7 @@ function openFixtureDialog(f) {
   // Knöpfe
   const row = el('div', 'row');
   if (!neu) {
-    const del = el('div', 'btn danger', 'Löschen');
-    del.addEventListener('pointerdown', () => {
+    const del = loeschKnopf(() => {
       send({ type: 'patch.fixture.delete', id: f.id });
       toast(`${f.name} entfernt.`);
       closeModal();
@@ -1368,28 +1545,95 @@ function toast(text, isError) {
 function setupHeader() {
   gmFader = makeHFader($('#gm'), (v) => send({ type: 'master.grandmaster', value: v }));
 
-  const b = $('#blackout');
-  const bar = $('#blackout-hold');
-  let timer = null, start = 0, raf = null;
+  $('#conn').addEventListener('pointerdown', openDiagDialog);
+  setupModalHintergrund();
 
-  b.addEventListener('pointerdown', () => {
-    start = performance.now();
-    const tick = () => {
-      const p = Math.min(1, (performance.now() - start) / BLACKOUT_HOLD);
-      bar.style.width = (p * 100) + '%';
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    timer = setTimeout(() => {
-      const on = !(srv && srv.master.blackout);
-      send({ type: 'master.blackout', on });
-      bar.style.width = '0';
-    }, BLACKOUT_HOLD);
-  });
-  const cancel = () => { clearTimeout(timer); cancelAnimationFrame(raf); bar.style.width = '0'; };
-  b.addEventListener('pointerup', cancel);
-  b.addEventListener('pointercancel', cancel);
+  setupBlackoutSwipe();
 }
+
+/* Blackout durch Ziehen. Der Griff startet links (Blackout aus) oder rechts
+ * (Blackout an) und muss ueber BO_SCHWELLE der Bahn gezogen werden. Ein
+ * kuerzerer Weg federt zurueck und schaltet nichts. */
+const BO_SCHWELLE = 0.8;
+
+function setupBlackoutSwipe() {
+  const bahn  = $('#blackout');
+  const knopf = $('#bo-knob');
+  const text  = $('#bo-text');
+
+  let zieht = false, startX = 0, weg = 0, weite = 0, skala = 1;
+
+  const an = () => !!(srv && srv.master.blackout);
+  // Weg, den der Griff hat: Bahnbreite minus Griff und die 3 px Luft beidseits.
+  const maxWeg = () => bahn.clientWidth - knopf.offsetWidth - 6;
+
+  /* ev.clientX zaehlt in Bildschirmpixeln, translateX aber in Pixeln der
+   * Buehne - und die ist skaliert (fitStage). Ohne diesen Faktor laeuft der
+   * Griff mit falscher Geschwindigkeit unter dem Finger weg. */
+  const buehnenSkala = () => {
+    // offsetWidth, nicht clientWidth: getBoundingClientRect misst mit
+    // Rahmen, clientWidth ohne. Mit clientWidth lag der Faktor bei dieser
+    // Bahn (2 px Rahmen) um 1,8 % daneben und der Griff lief dem Finger
+    // langsam davon.
+    const r = bahn.getBoundingClientRect();
+    return bahn.offsetWidth ? (r.width / bahn.offsetWidth) || 1 : 1;
+  };
+
+  /* Ruhelage: aus = links, an = rechts. */
+  function setzen() {
+    if (zieht) return;
+    knopf.style.transform = `translateX(${an() ? maxWeg() : 0}px)`;
+    text.style.opacity = '1';
+    text.textContent = an() ? '◂ AUFHEBEN' : 'BLACKOUT ▸';
+  }
+
+  knopf.addEventListener('pointerdown', (ev) => {
+    capture(knopf, ev);
+    zieht = true;
+    startX = ev.clientX;
+    weite = maxWeg();
+    skala = buehnenSkala();
+    weg = 0;
+    bahn.classList.add('zieht');
+  });
+
+  knopf.addEventListener('pointermove', (ev) => {
+    if (!zieht) return;
+    const roh = (ev.clientX - startX) / skala;
+    // Aus dem Blackout heraus geht es nach links, hinein nach rechts.
+    weg = an() ? clamp(roh, -weite, 0) : clamp(roh, 0, weite);
+    knopf.style.transform = `translateX(${(an() ? weite : 0) + weg}px)`;
+    text.style.opacity = String(1 - Math.min(1, Math.abs(weg) / weite * 1.6));
+  });
+
+  const los = () => {
+    if (!zieht) return;
+    zieht = false;
+    bahn.classList.remove('zieht');
+    if (weite > 0 && Math.abs(weg) / weite >= BO_SCHWELLE) {
+      // Griff am Ziel stehen lassen. setzen() wuerde hier die alte Ruhelage
+      // herstellen - der Server hat den neuen Zustand noch nicht bestaetigt,
+      // und der Griff zuckte sichtbar zurueck, bevor er wieder vorsprang.
+      const einschalten = !an();
+      knopf.style.transform = `translateX(${einschalten ? weite : 0}px)`;
+      text.style.opacity = '1';
+      text.textContent = einschalten ? '◂ AUFHEBEN' : 'BLACKOUT ▸';
+      send({ type: 'master.blackout', on: einschalten });
+    } else {
+      setzen();
+    }
+  };
+  knopf.addEventListener('pointerup', los);
+  knopf.addEventListener('pointercancel', los);
+
+  window.addEventListener('resize', setzen);
+  setzen();
+  blackoutSetzen = setzen;
+}
+
+/* Wird von applyState gerufen, damit der Griff auch dann springt, wenn ein
+ * anderes Geraet schaltet. */
+let blackoutSetzen = () => {};
 
 function setupLive() {
   pad = setupPad();
@@ -1403,6 +1647,425 @@ function setupLive() {
     onChange: (v) => send({ type: 'settings.pad_sensitivity', value: v }) });
 
   $('#wash-faders').append(zoomFader.el, dimFader.el, sensFader.el);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Verbindungsfenster                                                      */
+/* ---------------------------------------------------------------------- */
+
+/* Zeigt die Kette Tablet -> WebSocket -> Server -> Art-Net -> Node, jeweils
+ * mit dem, was sich messen laesst. Keine Ampeln ohne Messwert dahinter:
+ * was der Client nicht wissen kann, steht auch nicht drin. */
+
+const WS_ZUSTAND = ['verbindet', 'offen', 'schliesst', 'geschlossen'];
+
+let diagTimer = null;
+let diagOffen = false;   // nur dann schliesst ein Tippen auf den Hintergrund
+
+function alter(ms) {
+  if (ms == null) return '–';
+  if (ms < 1000) return Math.round(ms) + ' ms';
+  if (ms < 90000) return (ms / 1000).toFixed(1) + ' s';
+  const min = Math.floor(ms / 60000);
+  if (min < 90) return min + ' min';
+  return Math.floor(min / 60) + ' h ' + (min % 60) + ' min';
+}
+
+/* Gemessene Rate der state-Nachrichten - nicht die eingestellte. */
+function gemesseneStateHz() {
+  if (statesSeit.length < 2) return null;
+  const spanne = statesSeit[statesSeit.length - 1] - statesSeit[0];
+  if (spanne <= 0) return null;
+  return ((statesSeit.length - 1) / spanne) * 1000;
+}
+
+function zeile(k, v, warn) {
+  const r = el('div', 'drow' + (warn ? ' warn' : ''));
+  r.append(el('div', 'k', k), el('div', 'v', v));
+  return r;
+}
+
+function openDiagDialog() {
+  const d = dialog('Verbindung', 'Was gerade tatsächlich läuft — und die Schalter dafür.');
+  const body = el('div', 'diag');
+  d.appendChild(body);
+
+  const reihe = el('div', 'row');
+  const neuladen = el('div', 'btn primary', 'Seite neu laden');
+  neuladen.addEventListener('pointerdown', () => location.reload());
+
+  const hart = el('div', 'btn', 'Zwischenspeicher leeren');
+  hart.addEventListener('pointerdown', async () => {
+    // Nach einem Update haengt das Tablet sonst am alten Stand: Service
+    // Worker abmelden, Caches loeschen, dann neu laden.
+    try {
+      const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+      await Promise.all(regs.map(r => r.unregister()));
+      const keys = await caches?.keys?.() || [];
+      await Promise.all(keys.map(k => caches.delete(k)));
+    } catch (err) { /* dann eben nur neu laden */ }
+    location.reload();
+  });
+
+  const neuVerbinden = el('div', 'btn', 'Neu verbinden');
+  neuVerbinden.addEventListener('pointerdown', () => {
+    // Ein halbtoter Socket meldet sich nicht von selbst. Schliessen loest
+    // den bestehenden Wiederverbindungspfad aus.
+    if (ws) ws.close();
+    diagSchliessen();
+    toast('Verbindung wird neu aufgebaut …');
+  });
+
+  const sp = el('div', 'spacer');
+  const zu = el('div', 'btn', 'Schließen');
+  zu.addEventListener('pointerdown', diagSchliessen);
+
+  reihe.append(neuladen, hart, neuVerbinden, sp, zu);
+  d.appendChild(el('div', 'hr'));
+  d.appendChild(reihe);
+
+  diagOffen = true;
+  openModal(d);
+
+  zeichneDiag();
+  send({ type: 'diag.request' });
+  // Solange das Fenster offen ist, eine Auffrischung pro Sekunde.
+  clearInterval(diagTimer);
+  diagTimer = setInterval(() => {
+    if (!$('#modal').classList.contains('on')) { clearInterval(diagTimer); diagTimer = null; return; }
+    zeichneDiag();
+    send({ type: 'diag.request' });
+  }, 1000);
+}
+
+function diagSchliessen() {
+  clearInterval(diagTimer);
+  diagTimer = null;
+  closeModal();
+}
+
+/* Tippen neben das Fenster schliesst es - aber nur dieses. In den anderen
+ * Dialogen steckt Eingabe, die ein Fehlgriff sonst verwerfen wuerde. Der
+ * Zuhoerer haengt genau einmal am #modal: vorher wurde er bei jedem Oeffnen
+ * neu angehaengt und schloss danach auch fremde Dialoge. */
+function setupModalHintergrund() {
+  $('#modal').addEventListener('pointerdown', (ev) => {
+    if (diagOffen && ev.target === $('#modal')) diagSchliessen();
+  });
+}
+
+function zeichneDiag() {
+  const body = $('#modal .diag');
+  if (!body) return;
+  body.textContent = '';
+
+  /* --- Tablet -------------------------------------------------------- */
+  const gruppe1 = el('div', 'dgrp');
+  gruppe1.appendChild(el('div', 'dcap', 'DIESES GERÄT'));
+  const skala = getComputedStyle(document.documentElement).getPropertyValue('--scale').trim();
+  gruppe1.append(
+    zeile('Stand der Oberfläche', appVersion()),
+    zeile('Service Worker', swZustand()),
+    zeile('Anzeige', `${innerWidth}×${innerHeight} · Faktor ${(+skala || 1).toFixed(3)} · DPR ${devicePixelRatio}`),
+    zeile('Controller', gp.index === null ? 'nicht verbunden' : `${gp.name}${gp.standard ? '' : ' (fremde Belegung)'}`)
+  );
+
+  /* --- Verbindung ---------------------------------------------------- */
+  const gruppe2 = el('div', 'dgrp');
+  gruppe2.appendChild(el('div', 'dcap', 'VERBINDUNG'));
+  const zustand = ws ? WS_ZUSTAND[ws.readyState] : 'keine';
+  const hz = gemesseneStateHz();
+  const staleMs = lastStateAt ? Date.now() - lastStateAt.getTime() : null;
+  gruppe2.append(
+    zeile('Adresse', ws ? ws.url : wsUrl()),
+    zeile('Zustand', zustand, zustand !== 'offen'),
+    zeile('Verbunden seit', helloAt ? alter(Date.now() - helloAt.getTime()) : '–'),
+    zeile('Wiederverbindungen', String(reconnectTries)),
+    zeile('Protokoll', serverProtocol == null ? '–' : `v${serverProtocol} (Client v${PROTOCOL})`,
+          serverProtocol != null && serverProtocol !== PROTOCOL),
+    // Ueber 3 s ohne Zustand heisst: auch der Keepalive bleibt aus.
+    zeile('Letzter Zustand', staleMs == null ? '–' : 'vor ' + alter(staleMs), staleMs != null && staleMs > 3000),
+    // Der Server sendet nur bei Aenderung, plus einen Keepalive je Sekunde
+    // (STATE_KEEPALIVE_MS). Im Leerlauf ist 1/s also richtig und kein Fehler -
+    // ohne diesen Zusatz liest sich die Zahl neben "Zustand 10/s" wie einer.
+    zeile('Zustand empfangen', hz == null ? '–' : `${hz.toFixed(1)}/s · nur bei Änderung`),
+    zeile('Verworfene Pakete', String(verworfeneStates), verworfeneStates > 0)
+  );
+
+  body.append(gruppe1, gruppe2);
+
+  /* --- Server und Art-Net -------------------------------------------- */
+  if (!letzteDiag) {
+    body.appendChild(el('div', 'dhint', 'Server antwortet nicht auf die Abfrage.'));
+    return;
+  }
+  const sv = letzteDiag.server, an = letzteDiag.artnet, db = letzteDiag.db;
+
+  const gruppe3 = el('div', 'dgrp');
+  gruppe3.appendChild(el('div', 'dcap', 'SERVER'));
+  gruppe3.append(
+    zeile('Version', sv.version),
+    zeile('Läuft seit', alter(sv.now - sv.started)),
+    zeile('Verbundene Geräte', String(sv.clients)),
+    zeile('Takt', `DMX ${sv.tick_hz}/s · Zustand höchstens ${sv.state_hz}/s`),
+    zeile('Datenbank', db.ok ? `erreichbar (${db.name})` : `nicht erreichbar – ${db.error || 'unbekannt'}`, !db.ok)
+  );
+
+  const gruppe4 = el('div', 'dgrp');
+  gruppe4.appendChild(el('div', 'dcap', 'ART-NET'));
+  const seitPaket = an.last_ts ? sv.now - an.last_ts : null;
+  gruppe4.append(
+    zeile('Ziel', `${an.target}:${an.port} · ${an.mode}`),
+    zeile('Universe', String(an.universe)),
+    zeile('Pakete gesendet', an.sent.toLocaleString('de-DE')),
+    zeile('Letztes Paket', seitPaket == null ? 'noch keins' : 'vor ' + alter(seitPaket),
+          seitPaket == null || seitPaket > 2000),
+    zeile('Sendefehler', an.errors ? `${an.errors} – ${an.last_error || ''}` : '0', an.errors > 0)
+  );
+
+  body.append(gruppe3, gruppe4);
+}
+
+/* Aus der Adresse des geladenen Skripts: index.php haengt dort die Dateizeit
+ * an. Damit ist am Tablet ablesbar, ob es auf dem neuen Stand laeuft. */
+function appVersion() {
+  const skript = [...document.scripts].find(s => s.src && s.src.includes('app.js'));
+  const v = skript && new URL(skript.src).searchParams.get('v');
+  if (!v) return 'unbekannt';
+  return new Date(Number(v) * 1000).toLocaleString('de-DE');
+}
+
+function swZustand() {
+  if (!('serviceWorker' in navigator)) return 'nicht unterstützt';
+  const c = navigator.serviceWorker.controller;
+  return c ? 'aktiv' : 'nicht aktiv (kein App-Modus)';
+}
+
+/* ---------------------------------------------------------------------- */
+/* Controller (Gamepad-API)                                                */
+/* ---------------------------------------------------------------------- */
+
+/* Belegung (Standard-Mapping):
+ *   Linker Stick    Pan/Tilt schnell
+ *   Rechter Stick   Pan/Tilt langsam (beide addieren sich)
+ *   L1 / R1         Dimmer runter / hoch, gehalten. Doppeltipp faehrt in
+ *                   GP_DIM_TAP_SEC auf Minimum bzw. Maximum.
+ *   L2 / R2         Zoom enger / weiter, analog zur Druckstaerke.
+ *   Steuerkreuz     Position 1..4 - oben ist 1, dann im Uhrzeigersinn.
+ *
+ * Der Controller bedient immer das Moving Light, unabhaengig von der
+ * geoeffneten Seite. */
+
+const GP_DEADZONE      = 0.12;   // Ruhelage der Sticks
+const GP_STICK_FAST    = 1.00;   // linker Stick
+const GP_STICK_SLOW    = 0.30;   // rechter Stick
+/* Feste Empfindlichkeit des Controllers, unabhaengig vom Pad-Fader. Der
+ * Stickweg ist bereits die Dosierung; eine zweite, am Bildschirm verstellte
+ * Skala daruebergelegt macht den Controller unberechenbar. Geht als Feld in
+ * ml.move mit (PROTOKOLL.md §3.2). */
+const GP_SENSITIVITY   = 0.25;
+const GP_DIM_HOLD_SEC  = 3.0;    // voller Dimmerweg bei gehaltener Taste
+const GP_DIM_TAP_SEC   = 1.0;    // Doppeltipp: Rampe auf Minimum/Maximum
+const GP_ZOOM_HOLD_SEC = 2.5;    // voller Zoomweg bei ganz gedruecktem Trigger
+const GP_DOUBLE_MS     = 320;    // Fenster fuer den Doppeltipp
+const GP_TRIGGER_AN    = 0.10;   // ab hier gilt ein Trigger als gedrueckt
+
+/* Standard-Mapping der Gamepad-API. Meldet der Browser ein anderes Mapping,
+ * stimmen die Nummern nicht - dann sagen wir das in der Kopfzeile, statt
+ * stumm das Falsche zu schicken. */
+const GP_B = { L1: 4, R1: 5, L2: 6, R2: 7, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+
+/* Steuerkreuz auf die ersten vier Positionen: oben = 1, im Uhrzeigersinn. */
+const GP_DPAD_SLOT = { [GP_B.UP]: 1, [GP_B.RIGHT]: 2, [GP_B.DOWN]: 3, [GP_B.LEFT]: 4 };
+
+const gp = {
+  index: null,          // Index im getGamepads()-Feld
+  name: '',
+  standard: true,
+  letzteTasten: new Map(),   // Tastennummer -> gedrueckt (fuer Flanken)
+  letzterTipp: new Map(),    // Tastennummer -> Zeitpunkt (Doppeltipp)
+  letzteZeit: 0,
+  bewegt: false,        // ml.move laeuft gerade
+  letzterMove: 0,
+  // Dimmer und Zoom fuehren wir waehrend der Bedienung selbst, sonst
+  // schreibt der 10-Hz-Zustand vom Server den aelteren Wert zurueck und
+  // der Wert zittert - dasselbe Problem wie beim Fadergriff.
+  dim:  { fuehrt: false, wert: 0, rampe: null, gesendet: 0 },
+  zoom: { fuehrt: false, wert: 0.5, gesendet: 0 }
+};
+
+function setupGamepad() {
+  if (!('getGamepads' in navigator)) {
+    $('#gp-label').textContent = 'vom Browser nicht unterstützt';
+    return;
+  }
+  window.addEventListener('gamepadconnected',    (e) => gamepadAn(e.gamepad));
+  window.addEventListener('gamepaddisconnected', (e) => gamepadAb(e.gamepad));
+
+  // Beim Neuladen der Seite ist ein schon gekoppeltes Pad oft bereits da,
+  // ohne dass ein Ereignis kommt.
+  for (const p of navigator.getGamepads?.() || []) if (p) gamepadAn(p);
+
+  gp.letzteZeit = performance.now();
+  requestAnimationFrame(gamepadTick);
+}
+
+function gamepadAn(pad) {
+  gp.index = pad.index;
+  gp.name = (pad.id || 'Controller').replace(/\s*\([^)]*\)\s*$/, '').trim();
+  gp.standard = pad.mapping === 'standard';
+  document.body.classList.add('gp-an');
+  $('#gp-label').textContent = gp.standard
+    ? (gp.name || 'verbunden')
+    : `${gp.name} – fremde Belegung`;
+}
+
+function gamepadAb(pad) {
+  if (pad && gp.index !== null && pad.index !== gp.index) return;
+  gp.index = null;
+  document.body.classList.remove('gp-an', 'gp-aktiv');
+  $('#gp-label').textContent = 'nicht verbunden';
+  // Ein Kopf, der gerade faehrt, muss stehenbleiben. Der Totmann im Server
+  // faengt es zwar nach 400 ms ab, aber gesagt ist besser als abgelaufen.
+  if (gp.bewegt) { send({ type: 'ml.move', pan_speed: 0, tilt_speed: 0 }); gp.bewegt = false; }
+}
+
+function gamepadTick(jetzt) {
+  requestAnimationFrame(gamepadTick);
+
+  const dt = Math.min(0.1, (jetzt - gp.letzteZeit) / 1000);   // Sprung nach Tab-Wechsel deckeln
+  gp.letzteZeit = jetzt;
+
+  const pad = gp.index === null ? null : (navigator.getGamepads?.() || [])[gp.index];
+  if (!pad) {
+    if (gp.index !== null) gamepadAb(null);
+    return;
+  }
+  // Bedienung gesperrt: bei getrennter Verbindung nichts schicken.
+  if (document.body.classList.contains('offline')) return;
+
+  const achse = (i) => {
+    const v = pad.axes[i] || 0;
+    return Math.abs(v) < GP_DEADZONE ? 0 : v;
+  };
+  const taste = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
+  const druck = (i) => (pad.buttons[i] ? pad.buttons[i].value : 0);
+
+  gamepadSticks(achse, jetzt);
+  gamepadDimmer(taste, jetzt, dt);
+  gamepadZoom(druck, dt);
+  gamepadDpad(taste);
+
+  merkeTasten(pad);
+}
+
+/* ---- Pan/Tilt --------------------------------------------------------- */
+
+function gamepadSticks(achse, jetzt) {
+  // Achse 1 und 3 zeigen nach unten positiv; Tilt zaehlt nach oben.
+  let vx = achse(0) * GP_STICK_FAST + achse(2) * GP_STICK_SLOW;
+  let vy = -(achse(1) * GP_STICK_FAST + achse(3) * GP_STICK_SLOW);
+  vx = clamp(vx, -1, 1);
+  vy = clamp(vy, -1, 1);
+
+  const faehrt = vx !== 0 || vy !== 0;
+  document.body.classList.toggle('gp-aktiv', faehrt);
+
+  if (faehrt) {
+    // Auffrischen wie beim Pad: der Server setzt die Geschwindigkeit nach
+    // ML_MOVE_TIMEOUT_MS von selbst auf 0 (PROTOKOLL.md §3.2).
+    if (jetzt - gp.letzterMove >= 1000 / MOVE_HZ) {
+      gp.letzterMove = jetzt;
+      send({ type: 'ml.move', pan_speed: vx, tilt_speed: vy, sensitivity: GP_SENSITIVITY });
+    }
+    gp.bewegt = true;
+  } else if (gp.bewegt) {
+    gp.bewegt = false;
+    send({ type: 'ml.move', pan_speed: 0, tilt_speed: 0 });
+  }
+}
+
+/* ---- Dimmer ----------------------------------------------------------- */
+
+function gamepadDimmer(taste, jetzt, dt) {
+  const runter = taste(GP_B.L1), hoch = taste(GP_B.R1);
+
+  // Doppeltipp: auf Minimum bzw. Maximum fahren.
+  for (const [nr, ziel] of [[GP_B.L1, 0], [GP_B.R1, 1]]) {
+    if (!flanke(nr, taste(nr))) continue;
+    const vorher = gp.letzterTipp.get(nr) || 0;
+    gp.letzterTipp.set(nr, jetzt);
+    if (jetzt - vorher <= GP_DOUBLE_MS) {
+      gp.dim.fuehrt = true;
+      gp.dim.rampe = { von: gp.dim.wert, ziel, start: jetzt };
+      gp.letzterTipp.delete(nr);   // kein Dreifach-Tipp
+    }
+  }
+
+  if (gp.dim.rampe) {
+    const p = Math.min(1, (jetzt - gp.dim.rampe.start) / (GP_DIM_TAP_SEC * 1000));
+    gp.dim.wert = gp.dim.rampe.von + (gp.dim.rampe.ziel - gp.dim.rampe.von) * p;
+    sendeDimmer(jetzt, p >= 1);
+    if (p >= 1) { gp.dim.rampe = null; gp.dim.fuehrt = false; }
+    return;
+  }
+
+  if (runter === hoch) {          // beide oder keine: nichts tun
+    gp.dim.fuehrt = false;
+    return;
+  }
+  gp.dim.fuehrt = true;
+  const richtung = hoch ? 1 : -1;
+  gp.dim.wert = clamp01(gp.dim.wert + richtung * dt / GP_DIM_HOLD_SEC);
+  sendeDimmer(jetzt, false);
+}
+
+function sendeDimmer(jetzt, sofort) {
+  if (!sofort && jetzt - gp.dim.gesendet < FADER_SEND_MS) return;
+  gp.dim.gesendet = jetzt;
+  send({ type: 'ml.dimmer', value: gp.dim.wert });
+}
+
+/* ---- Zoom ------------------------------------------------------------- */
+
+function gamepadZoom(druck, dt) {
+  const enger = druck(GP_B.L2), weiter = druck(GP_B.R2);
+  const netto = (weiter > GP_TRIGGER_AN ? weiter : 0) - (enger > GP_TRIGGER_AN ? enger : 0);
+  if (netto === 0) { gp.zoom.fuehrt = false; return; }
+
+  gp.zoom.fuehrt = true;
+  gp.zoom.wert = clamp01(gp.zoom.wert + netto * dt / GP_ZOOM_HOLD_SEC);
+
+  const jetzt = performance.now();
+  if (jetzt - gp.zoom.gesendet < FADER_SEND_MS) return;
+  gp.zoom.gesendet = jetzt;
+  send({ type: 'ml.zoom', value: gp.zoom.wert });
+}
+
+/* ---- Steuerkreuz ------------------------------------------------------ */
+
+function gamepadDpad(taste) {
+  for (const nr of [GP_B.UP, GP_B.RIGHT, GP_B.DOWN, GP_B.LEFT]) {
+    if (!flanke(nr, taste(nr))) continue;
+    const slot = GP_DPAD_SLOT[nr];
+    const p = library.positions.find(x => x.slot === slot);
+    if (!p || !p.occupied) { toast(`Position ${slot} ist leer.`, true); continue; }
+    send({ type: 'position.recall', slot });
+    toast(`Position ${slot}: ${p.name || ''}`.trim());
+  }
+}
+
+/* ---- Hilfen ----------------------------------------------------------- */
+
+/* true genau in dem Durchlauf, in dem die Taste neu gedrueckt wurde. */
+function flanke(nr, gedrueckt) {
+  return gedrueckt && !gp.letzteTasten.get(nr);
+}
+
+function merkeTasten(pad) {
+  for (let i = 0; i < pad.buttons.length; i++) {
+    gp.letzteTasten.set(i, !!(pad.buttons[i] && pad.buttons[i].pressed));
+  }
 }
 
 function setupTabs() {
@@ -1478,6 +2141,7 @@ function setupStage() {
 
 window.addEventListener('DOMContentLoaded', () => {
   setupStage();
+  setupGamepad();
   setupTabs();
   setupHeader();
   setupLive();
