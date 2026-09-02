@@ -209,6 +209,50 @@ wenn selbst 1280 px nicht mehr passen, bleibt oben und unten ein Rand.
 Wer Masse aendert, aendert sie in diesem 1280-x-800-Raster - nicht in
 Prozent oder `vw`/`vh`, die beziehen sich auf den Schirm, nicht auf die Buehne.
 
+### Patch als Tabelle
+
+Der Patch steht als Tabelle: Adresse, Name, Bauart, Kanalzahl, Universe.
+Sortiert nach Universe und Startadresse, damit Luecken und Ueberschneidungen
+untereinander auffallen. Ueberschneidungen faerben die Zeile rot und stehen
+zusaetzlich in der Fussleiste — verhindert werden sie nicht, beim Umpatchen
+ist eine Ueberschneidung zwischendurch normal.
+
+Angetippt wird die **ganze Zeile**, nicht ein Knopf am Rand. Ein Knopf je
+Zeile waere mit seinen 44 px so hoch, dass die Tabelle schon bei elf
+Fixtures scrollt; die Zeile ist mit voller Breite ohnehin das groessere
+Trefferziel. Der Winkel rechts zeigt an, dass sich etwas oeffnet.
+
+### Programmer: Auswahl, dann Attribute
+
+Der Programmer arbeitet wie ein Pult, nicht wie eine Geraeteliste:
+
+1. Oben die Lampen antippen, die gemeinsam gestellt werden sollen (mehrere
+   moeglich, `Alle` / `Keine` als Abkuerzung).
+2. Unten erscheinen die Attribute der Auswahl als Fader. Ein Griff schreibt
+   den Wert in alle markierten Lampen, die dieses Attribut haben.
+3. Naechste Gruppe markieren, wieder stellen. Die Werte der vorherigen
+   Gruppe bleiben im Programmer stehen.
+4. Zum Schluss `Als Preset speichern`.
+
+Gezeigt wird die **Vereinigung** der Attribute, nicht die Schnittmenge: wer
+einen Dimmer und einen LED-Scheinwerfer zusammen markiert, soll den Dimmer
+trotzdem stellen koennen. Ein Fader wirkt nur auf die Lampen, die die Rolle
+ueberhaupt besitzen.
+
+Stehen die markierten Lampen bei einem Attribut unterschiedlich, ist der
+Fader gestrichelt und beschriftet mit `gem.` — der Griff zeigt dann den Wert
+der ersten Lampe. Sobald man ihn anfasst, ziehen alle gleich.
+
+Die Reihenfolge der Fader kommt aus `ROLE_ORDER` in `frontend/app.js`, nicht
+aus der DMX-Adresse. Nach Adresse sortiert stuende bei gemischter Auswahl
+sonst Weiss vor Amber, nur weil die erste Lampe kein Amber hat.
+
+Pan und Tilt haben bewusst keine Fader: die Position kommt aus den
+definierten Slots (`POSITION`-Zeile, erscheint sobald ein Moving Light
+markiert ist). Ein Preset speichert den Slot als Verweis, nicht als
+Kanalwerte — damit bleibt die Position in der Hand von Pad und
+Positionsliste.
+
 ### Als App auf dem Tablet (PWA)
 
 Das Pult bringt ein Web-App-Manifest (`frontend/manifest.webmanifest`),

@@ -279,28 +279,62 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 
 /* ---------- Programmer ------------------------------------------------ */
 
-/* Fixtures nebeneinander, umbrechend. Der Wash ist mit 19 Fadern breiter
-   als der Schirm und bekommt deshalb eine ganze Zeile. */
-#prog-row {
-  display: flex; flex-wrap: wrap; gap: 12px;
-  align-content: flex-start; overflow-y: auto; flex-grow: 1;
+/* Ablauf wie am Pult: oben die Lampen markieren, unten die gemeinsamen
+   Attribute stellen, dann die naechste Gruppe. Deshalb zwei feste Zonen
+   statt der frueheren aufklappbaren Karten je Geraet. */
+
+#prog-pick { flex: none; display: flex; flex-direction: column; gap: 10px; }
+#prog-pick .r { display: flex; align-items: center; gap: 8px; }
+
+.mini {
+  height: 26px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--line2); background: var(--panel2);
+  color: var(--txt2); font: 500 11px/24px var(--sans);
 }
-.card.fixture { padding: 10px 12px; gap: 10px; }
-.card.fixture .head { gap: 12px; cursor: default; }
-.card.fixture .ident { display: flex; flex-direction: column; gap: 2px; }
-.card.fixture .head .t { font: 600 13px/1.2 var(--sans); letter-spacing: 0; text-transform: none; }
-.card.fixture .head .r { font: 400 10px/1.2 var(--mono); color: var(--txt3); }
-.card.fixture .head .aktiv {
-  flex-grow: 1; text-align: right; padding-right: 4px;
-  font: 500 10px/1 var(--mono); color: var(--txt3);
+.mini:active { filter: brightness(1.25); }
+
+#prog-fixtures {
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px;
+  /* Zwei Reihen sind der Entwurfsfall (11 Geraete). Mehr wird gescrollt,
+     damit die Attributzone unten nicht zusammengedrueckt wird. */
+  max-height: 148px; overflow-y: auto;
 }
-.card.fixture .head .aktiv.an { color: var(--amber); }
-.card.fixture .head .chev { font: 400 13px/1 var(--sans); color: var(--txt2); width: 16px; text-align: center; }
-.card.fixture .faders { flex-wrap: wrap; gap: 6px; }
+.fx {
+  position: relative; min-height: 64px; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--panel);
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+}
+.fx .nm { font: 600 13px/1.2 var(--sans); color: var(--txt); }
+.fx .r  { font: 400 10px/1.2 var(--mono); color: var(--txt3); }
+.fx .belegt { font: 500 10px/1 var(--mono); color: var(--txt3); height: 10px; }
+.fx .belegt.an { color: var(--amber); }
+.fx.sel { border-color: var(--amber); background: #2A2013; }
+.fx.sel .nm { color: var(--amber); }
+.fx:active { filter: brightness(1.25); }
+
+#prog-attrs { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+#prog-attr-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.attr-faders { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+
+/* Ein Fader, der mehrere Lampen zugleich stellt. */
+.fader.gruppe .name { color: var(--txt); }
+/* Die Lampen der Auswahl stehen unterschiedlich - der Griff zeigt die erste. */
+.fader.gemischt { border-style: dashed; }
+.fader.gemischt .sub { color: var(--amber); }
+
+.leer-hinweis {
+  flex-grow: 1; display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--line); border-radius: 10px;
+  font: 400 13px/1 var(--sans); color: var(--txt3);
+}
+
 /* Positionsauswahl im Programmer: eigene Zeile ueber den Fadern.
    Frueher lag sie im Faderstreifen und rutschte beim Umbrechen dahinter. */
 .pospick {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 12px; flex: none;
   padding: 8px 10px; border-radius: 8px;
   background: var(--sunk); border: 1px solid var(--line);
 }
@@ -322,20 +356,6 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 
 .dlg .box.warn { border-color: var(--red); }
 .dlg .box.warn .cap { color: var(--red); }
-/* Zugeklappte Karten bauen ihre Fader gar nicht erst (siehe app.js). */
-.card.fixture.zu .faders { display: none; }
-.card.fixture.zu { align-self: flex-start; }
-/* Der Moving Head bekommt die volle Breite, sobald er offen ist. */
-.card.fixture:has(.head .r:not(:empty)) { min-width: 0; }
-.card.fixture.breit { width: 100%; }
-.card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-  padding: 14px; display: flex; flex-direction: column; gap: 12px;
-}
-.card .head { display: flex; justify-content: space-between; align-items: center; }
-.card .head .t { font: 600 13px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; }
-.card .head .r { display: flex; align-items: center; gap: 6px; font: 400 11px/1 var(--mono); color: var(--txt3); }
-.card .faders { display: flex; gap: 8px; justify-content: center; }
 
 #prog-bar {
   height: 76px; background: var(--panel); border: 1px solid var(--line);
@@ -452,22 +472,34 @@ body.offline main, body.offline #tabs, body.offline #gm-wrap, body.offline #blac
 /* ---------- Patch-Editor ---------------------------------------------- */
 
 #patch-list {
-  flex-grow: 1; overflow-y: auto;
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px; align-content: start;
+  flex-grow: 1; min-height: 0; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
 }
-.prow {
-  display: flex; align-items: center; gap: 14px; padding: 10px 12px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+
+.ptab { width: 100%; border-collapse: collapse; }
+
+.ptab th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--panel2); text-align: left;
+  padding: 8px 12px; border-bottom: 1px solid var(--line2);
+  font: 600 10px/1 var(--sans); letter-spacing: .08em;
+  color: var(--txt3); text-transform: uppercase;
 }
-.prow.konflikt { border-color: var(--red); }
-.prow .adr { width: 62px; flex-shrink: 0; text-align: center; }
-.prow .adr .a { font: 600 20px/1 var(--mono); color: var(--amber); }
-.prow .adr .b { font: 400 10px/1.4 var(--mono); color: var(--txt3); }
-.prow .mitte { flex-grow: 1; min-width: 0; }
-.prow .mitte .nm { font: 600 14px/1.3 var(--sans); }
-.prow .mitte .ty { font: 400 11px/1.4 var(--sans); color: var(--txt3); }
-.prow .akt .btn { min-width: 0; height: 44px; padding: 0 16px; }
+.ptab td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.ptab tbody tr:active td { background: var(--panel2); }
+.ptab tbody tr:last-child td { border-bottom: none; }
+
+/* Adressen untereinander lesbar halten: Ziffernbreite fest, rechtsbuendig. */
+.ptab .adr { font: 600 15px/1 var(--mono); color: var(--amber); white-space: nowrap; width: 110px; }
+.ptab .nm  { font: 600 14px/1.2 var(--sans); }
+.ptab .ty  { font: 400 12px/1.2 var(--sans); color: var(--txt2); }
+.ptab .num { font: 400 12px/1 var(--mono); color: var(--txt3); text-align: right; width: 64px; }
+.ptab th.num { text-align: right; }
+/* Ganze Zeile oeffnet den Editor; der Winkel sagt, dass da etwas passiert. */
+.ptab .chev { width: 28px; text-align: right; font: 400 16px/1 var(--sans); color: var(--txt3); }
+
+.ptab tr.konflikt td { background: #2A1712; }
+.ptab tr.konflikt .adr { color: var(--red); }
 
 #patch-bar {
   height: 76px; flex-shrink: 0; background: var(--panel);

@@ -151,7 +151,28 @@ function asset($datei) {
 
     <!-- ---------------- Programmer ---------------- -->
     <div class="page" id="page-programmer">
-      <div id="prog-row"></div>
+
+      <!-- Erst die Lampen waehlen, dann die Attribute setzen. -->
+      <div id="prog-pick">
+        <div class="sect-title">
+          <div class="t">Lampen</div>
+          <div class="r">
+            <span id="prog-pick-hint">tippen = auswählen · mehrere möglich</span>
+            <span class="mini" id="prog-all">Alle</span>
+            <span class="mini" id="prog-none">Keine</span>
+          </div>
+        </div>
+        <div id="prog-fixtures"></div>
+      </div>
+
+      <div id="prog-attrs">
+        <div class="sect-title">
+          <div class="t">Attribute</div>
+          <div class="r" id="prog-attr-sub">keine Auswahl</div>
+        </div>
+        <div id="prog-attr-body"></div>
+      </div>
+
       <div id="prog-bar">
         <div>
           <div class="t" id="prog-count">0 Kanäle im Programmer</div>
