@@ -25,8 +25,11 @@
 	# Hostnamen vorgesehen, ein Browser schickt bei einer IP also keines mit.
 	# Ohne diese Zeile weiss Caddy dann nicht, welches Zertifikat es vorlegen
 	# soll, und bricht den Handshake ab - im Browser als ERR_SSL_PROTOCOL_ERROR.
-	# Hier gehoert deshalb die IP hinein, nicht der Hostname.
-	default_sni {$LIGHT_ALT_HOST:127.0.0.1}
+	#
+	# Hier gehoert die IP hinein, unter der zugegriffen wird - je nach Aufbau
+	# also LIGHT_ALT_HOST oder LIGHT_HOST selbst. start.sh waehlt die richtige
+	# aus und setzt LIGHT_SNI; von Hand gestartet gilt der Vorgabewert.
+	default_sni {$LIGHT_SNI:127.0.0.1}
 }
 
 {$LIGHT_HOST:localhost}, {$LIGHT_ALT_HOST:127.0.0.1} {

@@ -119,6 +119,9 @@ services:
       # bleibt der alte Weg erreichbar, waehrend auf den Hostnamen
       # umgestellt wird. Muss sich von LIGHT_HOST unterscheiden.
       LIGHT_ALT_HOST: ${LIGHT_ALT_HOST:-127.0.0.1}
+      # Zertifikat fuer Zugriffe ohne SNI (also ueber eine IP). Muss die IP
+      # sein, unter der zugegriffen wird - start.sh waehlt sie passend.
+      LIGHT_SNI: ${LIGHT_SNI:-127.0.0.1}
     ports:
       - "${HTTPS_PORT:-443}:443"
       # 80 nur uebernehmen, wenn das Frontend nicht schon dort liegt.
