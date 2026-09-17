@@ -60,6 +60,89 @@ Die Datenbank wird beim allerersten Start automatisch aus
 `database/schema.sql` und `database/seed.test.sql` aufgebaut; danach bleibt
 sie im Docker-Volume `db-data` erhalten.
 
+### Update mit Datenbank-Migration
+
+`schema.sql` greift nur beim allerersten Start. Eine bestehende Datenbank
+im Volume `db-data` bekommt neue Spalten deshalb **nicht** von selbst —
+dafür liegen unter `database/migrations/` einzelne SQL-Dateien, die einmal
+von Hand eingespielt werden.
+
+> **Nur die Migrationen einspielen, die mit dem Update neu dazugekommen
+> sind.** Ältere Dateien sind nicht alle harmlos: `2026-09-01-ma3-repatch.sql`
+> schreibt den Patch neu, `2026-08-29-pan-tilt-invert.sql` setzt die
+> Pan/Tilt-Invertierung zurück. Welche neu sind, zeigt Schritt 1.
+
+Beispiel: Update auf das Vorglühen (`2026-09-17-min-value.sql`). Alle
+Befehle im Projektverzeichnis auf dem Server ausführen.
+
+**1. Neuen Stand holen und nachsehen, welche Migrationen neu sind**
+
+```bash
+cd gyra-light-control
+git pull
+git log --name-only --format= ORIG_HEAD..HEAD -- database/migrations/
+```
+
+Die Ausgabe listet die neuen Dateien, hier
+`database/migrations/2026-09-17-min-value.sql`.
+
+**2. Sicherung der Datenbank ziehen**
+
+```bash
+docker compose exec -T db mariadb-dump -u gyra -pgyra lichtsteuerung \
+  > backup-$(date +%F).sql
+ls -lh backup-*.sql        # Datei muss da und nicht leer sein
+```
+
+**3. Migration einspielen**
+
+```bash
+docker compose exec -T db mariadb -u gyra -pgyra \
+  < database/migrations/2026-09-17-min-value.sql
+```
+
+Keine Ausgabe heißt Erfolg. Die Migration ist idempotent: ein zweiter
+Aufruf schadet nicht.
+
+**4. Prüfen, ob die Spalte da ist**
+
+```bash
+docker compose exec -T db mariadb -u gyra -pgyra lichtsteuerung \
+  -e "SHOW COLUMNS FROM dmx_channels LIKE 'min_value';"
+```
+
+Erwartet: eine Zeile mit `min_value | tinyint(3) unsigned | YES`.
+
+**5. Backend und Frontend neu bauen und starten**
+
+```bash
+./start.sh
+```
+
+**6. Im Pult kontrollieren**
+
+Patch → Fixture öffnen → unter **Vorglühen · Minimalwert** einen Wert
+setzen → **Übernehmen**. Kommt keine Fehlermeldung und steht der Wert beim
+erneuten Öffnen noch da, ist alles durch.
+
+**Hinweise**
+
+- Andere Zugangsdaten in der `.env` (`DB_USER`, `DB_PASSWORD`, `DB_NAME`)?
+  Dann in den Befehlen `gyra`/`gyra`/`lichtsteuerung` entsprechend ersetzen.
+- **Zurück zur Sicherung**, falls etwas schiefgeht:
+  ```bash
+  docker compose exec -T db mariadb -u gyra -pgyra lichtsteuerung < backup-JJJJ-MM-TT.sql
+  ./start.sh
+  ```
+- `./start.sh reset` braucht keine Migration — es baut die Datenbank aus
+  dem aktuellen `schema.sql` neu, **löscht dabei aber Patch und Presets**.
+- **Ohne Docker** (Backend per PM2, MariaDB/MySQL direkt auf dem Host):
+  ```bash
+  mysqldump -u gyra -p lichtsteuerung > backup-$(date +%F).sql
+  mysql -u gyra -p < database/migrations/2026-09-17-min-value.sql
+  pm2 restart atrium-light-server
+  ```
+
 ### Art-Net-Ziel
 
 Ohne Aenderung gehen die DMX-Pakete an den mitgelieferten Monitor-Container
@@ -559,13 +642,9 @@ einen Prozentwert setzen. Der Server gibt den Kanal nie darunter aus, auch
 nicht bei Blackout oder Grandmaster 0. Gespeichert wird der DMX-Wert in
 `dmx_channels.min_value` (0..255, `NULL` = aus).
 
-Bestehende Datenbanken brauchen dafür einmal die Migration:
-
-```bash
-mysql lichtsteuerung < database/migrations/2026-09-17-min-value.sql
-```
-
-Ohne Migration läuft der Server normal weiter, nur das Speichern eines
+Bestehende Datenbanken brauchen dafür einmal die Migration
+`2026-09-17-min-value.sql` — Schritt für Schritt unter
+[Update mit Datenbank-Migration](#update-mit-datenbank-migration). Ohne Migration läuft der Server normal weiter, nur das Speichern eines
 Mindestwerts meldet dann einen Fehler.
 
 ## Betrieb im Netz (Tablet + Art-Net-Node)
