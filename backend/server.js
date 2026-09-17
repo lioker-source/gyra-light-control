@@ -458,6 +458,17 @@ function applyMaster(valueNorm, ch) {
   return valueNorm * grandmaster;
 }
 
+/**
+ * Vorgluehen: Untergrenze eines Kanals als 0..1 (dmx_channels.min_value).
+ * Gilt nach Grandmaster und Blackout - ein Blackout soll die Lampe
+ * dunkel, aber nicht kalt machen, sonst loest beim Wiedereinschalten der
+ * Einschaltstrom die Sicherung aus.
+ */
+function minNorm(ch) {
+  if (!ch || ch.min_value == null) return 0;
+  return clamp(ch.min_value / 255, 0, 1);
+}
+
 function mixSceneChannelsHTP() {
   // Für jeden Kanal: max(Beiträge aller Presets, Programmer)
   drivenChannels.clear();
@@ -500,7 +511,9 @@ function mixSceneChannelsHTP() {
     // Grandmaster/Blackout ganz am Ende der Mischkette, und nur auf
     // Intensitäten (PROTOKOLL.md §6). Pan/Tilt/Zoom/Control bleiben
     // unangetastet – sonst würde ein Blackout den Kopf verstellen.
-    outputChannels.set(ch.id, clamp(applyMaster(maxVal, ch), 0, 1));
+    // Danach die Untergrenze fuers Vorgluehen, bewusst hinter dem Master.
+    const out = Math.max(applyMaster(maxVal, ch), minNorm(ch));
+    outputChannels.set(ch.id, clamp(out, 0, 1));
   }
 }
 
@@ -889,6 +902,7 @@ function buildDmxUniverses() {
         const sceneVal = outputChannels.get(ch.id) ?? 0;
         vNorm = Math.max(vNorm, sceneVal);
       }
+      vNorm = Math.max(vNorm, minNorm(ch));
       const v = Math.round(vNorm * 255);
       if (ch.dmx_address >= 1 && ch.dmx_address <= DMX_UNIVERSE_SIZE) {
         arr[ch.dmx_address - 1] = v;
@@ -1373,6 +1387,27 @@ async function handlePatchFixture(ws, msg) {
         'UPDATE fixtures SET name = ?, fixture_type = ?, universe = ?, start_address = ?, sort_order = ? WHERE id = ?',
         [name, t, universe, start, start, msg.id]
       );
+
+      // Vorgluehen je Kanal. Nur Kanaele dieses Fixtures, und nur wenn
+      // die Bauart bleibt - sonst gibt es die Kanal-IDs gleich nicht mehr.
+      const minValues = Array.isArray(msg.min_values) ? msg.min_values : [];
+      if (minValues.length && t === alt.fixture_type) {
+        for (const mv of minValues) {
+          const v = mv.min_value == null ? null : Math.round(Number(mv.min_value));
+          if (v != null && !(v >= 0 && v <= 255)) throw new Error('Mindestwert ausserhalb 0-255');
+          try {
+            await conn.query(
+              'UPDATE dmx_channels SET min_value = ? WHERE id = ? AND fixture_id = ?',
+              [v || null, mv.channel_id, msg.id]
+            );
+          } catch (err) {
+            if (err.code === 'ER_BAD_FIELD_ERROR') {
+              throw new Error('Spalte min_value fehlt - Migration 2026-09-17-min-value.sql einspielen');
+            }
+            throw err;
+          }
+        }
+      }
 
       if (t !== alt.fixture_type) {
         // Bauart gewechselt: Kanaele passen nicht mehr, also neu anlegen.
@@ -2135,6 +2170,7 @@ function buildChannelList() {
     fixture_id: ch.fixture_id ?? null,
     role: ch.role ?? null,
     fixed_value: ch.fixed_value ?? null,
+    min_value: ch.min_value ?? null,
     is_intensity: !!ch.is_intensity
   }));
 }

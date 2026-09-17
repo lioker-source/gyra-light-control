@@ -1484,11 +1484,22 @@ function openFixtureDialog(f) {
   warn.append(el('div', 'cap', 'BAUART WIRD GEWECHSELT'),
               el('div', 'main', 'Die Kanäle dieses Fixtures werden neu angelegt.'),
               el('div', 'list', 'Presetwerte, die auf die bisherigen Kanäle zeigen, gehen dabei verloren. Adresse oder Name allein zu ändern ist unkritisch.'));
-  const paintWarn = () => {
+  let paintWarn = () => {
     warn.style.display = (!neu && typ !== f.type) ? 'flex' : 'none';
     setAdr(adr);
   };
   paintWarn();
+
+  // Vorglühen: Mindestwert je Intensitätskanal. Nur beim Bearbeiten -
+  // beim Anlegen gibt es die Kanäle noch nicht.
+  const vorgluehen = neu ? null : vorgluehFeld(f);
+  if (vorgluehen) {
+    const paintWarnAlt = paintWarn;
+    paintWarn = () => {
+      paintWarnAlt();
+      vorgluehen.el.style.display = typ !== f.type ? 'none' : 'flex';
+    };
+  }
 
   // Knöpfe
   const row = el('div', 'row');
@@ -1508,13 +1519,66 @@ function openFixtureDialog(f) {
     const nm = name.value.trim() || typeLabel(typ);
     send(neu
       ? { type: 'patch.fixture.create', name: nm, fixture_type: typ, universe: 0, start_address: adr }
-      : { type: 'patch.fixture.update', id: f.id, name: nm, fixture_type: typ, universe: f.universe, start_address: adr });
+      : { type: 'patch.fixture.update', id: f.id, name: nm, fixture_type: typ, universe: f.universe, start_address: adr,
+          min_values: vorgluehen ? vorgluehen.geaendert() : [] });
     closeModal();
   });
   row.append(sp, cancel, ok);
 
-  d.append(nf, tf, af, warn, row);
+  d.append(nf, tf, af, warn);
+  if (vorgluehen) d.appendChild(vorgluehen.el);
+  d.appendChild(row);
   openModal(d);
+}
+
+/* Vorglühen-Bereich im Fixture-Dialog. Ein Stepper je Intensitätskanal;
+ * Anzeige in Prozent, gespeichert wird der DMX-Wert (0..255). Liefert
+ * null, wenn das Fixture keine Intensitätskanäle hat. */
+function vorgluehFeld(f) {
+  const kanaele = patch.channels
+    .filter(c => c.fixture_id === f.id && c.is_intensity)
+    .sort((a, b) => a.dmx_address - b.dmx_address);
+  if (!kanaele.length) return null;
+
+  const pct = (dmx) => Math.round((dmx || 0) / 2.55);
+  const werte = new Map(kanaele.map(c => [c.id, pct(c.min_value)]));
+
+  const feld = el('div', 'field vorgl');
+  feld.appendChild(el('div', 'cap', 'VORGLÜHEN · MINIMALWERT'));
+  feld.appendChild(el('div', 'foot',
+    'Der Kanal fällt nie unter diesen Wert, auch nicht bei Blackout. Dämpft den Einschaltstrom kalter Glühlampen.'));
+
+  const liste = el('div', 'vgl-liste');
+  const labelVon = (c) => c.name.startsWith(f.name + ' ') ? c.name.slice(f.name.length + 1) : c.name;
+  for (const c of kanaele) {
+    const zeile = el('div', 'vgl');
+    const minus = el('div', 'btn', '−');
+    const out = el('div', 'out');
+    const plus = el('div', 'btn', '+');
+    const paint = () => {
+      const v = werte.get(c.id);
+      out.textContent = v ? `${v} %` : 'aus';
+      out.classList.toggle('an', v > 0);
+    };
+    const setze = (v) => { werte.set(c.id, Math.max(0, Math.min(100, v))); paint(); };
+    minus.addEventListener('pointerdown', () => setze(werte.get(c.id) - 1));
+    plus.addEventListener('pointerdown', () => setze(werte.get(c.id) + 1));
+    zeile.append(el('div', 'l', labelVon(c)), minus, out, plus);
+    paint();
+    liste.appendChild(zeile);
+  }
+  feld.appendChild(liste);
+
+  return {
+    el: feld,
+    // Nur geänderte Kanäle schicken; 0 % heißt "aus" (NULL).
+    geaendert: () => kanaele
+      .filter(c => werte.get(c.id) !== pct(c.min_value))
+      .map(c => {
+        const v = werte.get(c.id);
+        return { channel_id: c.id, min_value: v ? Math.round(v * 2.55) : null };
+      })
+  };
 }
 
 /* Erste Adresse hinter dem letzten belegten Kanal. */

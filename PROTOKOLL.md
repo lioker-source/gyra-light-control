@@ -229,7 +229,8 @@ fahren. Beide Felder sind einzeln optional, mindestens eines muss gesetzt sein
 { "type": "patch.fixture.create", "name": "RGB 16 5", "fixture_type": "rgbaw",
   "universe": 0, "start_address": 44 }
 { "type": "patch.fixture.update", "id": 12, "name": "RGB 16 2",
-  "fixture_type": "rgbaw", "universe": 0, "start_address": 11 }
+  "fixture_type": "rgbaw", "universe": 0, "start_address": 11,
+  "min_values": [ { "channel_id": 31, "min_value": 26 } ] }
 { "type": "patch.fixture.delete", "id": 12 }
 ```
 
@@ -253,6 +254,11 @@ Zeilen bestehen und wandern nur. Das Frontend warnt vor einem Bauartwechsel.
 
 Ein `moving_head` wird beim Anlegen zusätzlich in `ml_fixtures` verdrahtet
 (Pan/Tilt/Zoom/Dimmer), damit Pad und Positionen sofort greifen.
+
+**`min_values` (optional) setzt das Vorglühen** je Kanal: DMX-Wert 0..255,
+`null` oder `0` schaltet es ab. Der Server nimmt nur Kanäle dieses Fixtures
+an und ignoriert das Feld bei einem Bauartwechsel (die Kanäle werden dann neu
+angelegt). Das Frontend schickt nur geänderte Kanäle.
 
 Adressüberschneidungen werden **nicht** abgelehnt — beim Umpatchen ist eine
 Kollision zwischendurch normal. Das Frontend zeigt sie an.
@@ -301,7 +307,7 @@ Zustand zu melden.
   "channels": [
     { "id": 31, "name": "Wash Dimmer", "universe": 0, "dmx_address": 31,
       "channel_group": "ml", "fixture_id": 21, "role": "dimmer",
-      "fixed_value": null, "is_intensity": true }
+      "fixed_value": null, "min_value": 26, "is_intensity": true }
   ],
   "ml_fixtures": [
     { "id": 1, "name": "Hero Wash 300 TW",
@@ -327,6 +333,13 @@ Sobald der Programmer für den Kanal einen Eintrag hat, gewinnt dieser, **auch
 wenn er 0 ist**: Licht ausschalten muss möglich bleiben. Früher wurde
 `fixed_value` ganz am Ende über alles geschrieben; solche Kanäle waren im
 Programmer deshalb unbedienbar und wurden dort ausgeblendet.
+
+**`min_value` ist eine Untergrenze fürs Vorglühen** (DMX 0..255, `null` =
+aus). Manche Glühlampen ziehen kalt einen so hohen Einschaltstrom, dass die
+Sicherung fällt; ein kleiner Grundwert hält den Faden warm. Die Untergrenze
+greift als letzter Schritt der Mischkette, **nach** Grandmaster und Blackout
+(§6) — sonst wäre der Faden gerade nach einem Blackout kalt. Gespeicherte
+Presets enthalten sie nicht, sie steckt nur in der Ausgabe.
 
 ### 4.2 `library` — Presets und Positionen
 
@@ -442,7 +455,12 @@ wert_final = is_intensity ? wert * grandmaster * (blackout ? 0 : 1)
                           : wert
 ```
 
-`fixed_value`-Kanäle bleiben in jedem Fall unangetastet.
+`fixed_value`-Kanäle bleiben in jedem Fall unangetastet. Danach kommt nur
+noch die Vorglüh-Untergrenze (§4.1):
+
+```
+wert_aus = max(wert_final, min_value / 255)
+```
 
 ---
 

@@ -551,6 +551,23 @@ normal steuerbar). Der Server hält sie konstant, das Frontend blendet sie
 im Programmer aus. Früher war dafür eine feste ID-Liste `[33..39]` im
 Servercode verdrahtet.
 
+### Vorglühen (Mindestwert je Kanal)
+
+Glühlampen mit hohem Einschaltstrom lassen sich vorglühen: Im Patch das
+Fixture öffnen und unter **Vorglühen · Minimalwert** je Intensitätskanal
+einen Prozentwert setzen. Der Server gibt den Kanal nie darunter aus, auch
+nicht bei Blackout oder Grandmaster 0. Gespeichert wird der DMX-Wert in
+`dmx_channels.min_value` (0..255, `NULL` = aus).
+
+Bestehende Datenbanken brauchen dafür einmal die Migration:
+
+```bash
+mysql lichtsteuerung < database/migrations/2026-09-17-min-value.sql
+```
+
+Ohne Migration läuft der Server normal weiter, nur das Speichern eines
+Mindestwerts meldet dann einen Fehler.
+
 ## Betrieb im Netz (Tablet + Art-Net-Node)
 
 Getestet am 2026-09-01 mit iPad als Pult und einem Mac als Art-Net-Node.

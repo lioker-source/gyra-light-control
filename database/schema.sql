@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS dmx_channels (
   -- Shutter, Fixture-Mode oder Prisma. NULL = normal steuerbar.
   -- Ersetzt die früher im Servercode hart kodierte ID-Liste.
   fixed_value TINYINT UNSIGNED NULL,
+  -- Vorgluehen: DMX-Wert (0..255), unter den der Kanal nie faellt -
+  -- auch nicht bei Blackout. Haelt Gluehlampen warm und daempft so den
+  -- Einschaltstrom, der sonst die Sicherung ausloest. NULL = aus.
+  min_value TINYINT UNSIGNED NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_universe_address (universe, dmx_address),
   KEY idx_channel_group (channel_group),

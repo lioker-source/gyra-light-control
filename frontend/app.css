@@ -500,6 +500,21 @@ main { flex-grow: 1; padding: 16px; overflow: hidden; }
 }
 .dlg .stepper .out b { font: 600 22px/1 var(--mono); }
 .dlg .stepper .out span { font: 400 14px/1 var(--sans); color: var(--txt3); }
+/* Vorglühen: kompakte Zeilen, der Hero Wash bringt sieben Kanäle mit. */
+.dlg .vgl-liste {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px;
+  max-height: 104px; overflow-y: auto;
+}
+.dlg .vgl { display: flex; align-items: center; gap: 6px; }
+.dlg .vgl .l { flex-grow: 1; min-width: 0; font: 500 13px/1.2 var(--sans); color: var(--txt2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dlg .vgl .btn { min-width: 44px; width: 44px; height: 44px; padding: 0; font: 600 20px/1 var(--sans); }
+.dlg .vgl .out {
+  width: 64px; height: 44px; border: 1px solid var(--line2); background: var(--sunk);
+  border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  font: 600 15px/1 var(--mono); color: var(--txt3);
+}
+.dlg .vgl .out.an { color: var(--amber); border-color: var(--amber); }
 .dlg .hr { height: 1px; background: var(--line); }
 .dlg .foot { font: 400 12px/1.5 var(--sans); color: var(--txt3); }
 
