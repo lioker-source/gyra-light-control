@@ -134,6 +134,8 @@ erneuten Öffnen noch da, ist alles durch.
   docker compose exec -T db mariadb -u gyra -pgyra lichtsteuerung < backup-JJJJ-MM-TT.sql
   ./start.sh
   ```
+- Die REST-API (`/api/reset`) bringt **keine** weitere Migration mit —
+  offen ist nur `2026-09-17-min-value.sql`, falls noch nicht eingespielt.
 - `./start.sh reset` braucht keine Migration — es baut die Datenbank aus
   dem aktuellen `schema.sql` neu, **löscht dabei aber Patch und Presets**.
 - **Ohne Docker** (Backend per PM2, MariaDB/MySQL direkt auf dem Host):
@@ -168,8 +170,33 @@ Falls auf dem Server eine Firewall laeuft:
 
 ```bash
 sudo ufw allow 80/tcp     # Weboberflaeche
-sudo ufw allow 8080/tcp   # WebSocket
+sudo ufw allow 8080/tcp   # WebSocket + REST-API
 ```
+
+### REST-API
+
+Minimal und bewusst **ohne Authentifizierung** — nur für ein Netz, in dem
+ausschließlich bekannte Geräte hängen. Läuft auf demselben Port wie der
+WebSocket (`LIGHT_WS_PORT`, Standard 8080), mit HTTPS-Profil zusätzlich über
+Caddy unter `/api/`.
+
+| Methode | Pfad         | Wirkung |
+|---------|--------------|---------|
+| `POST`  | `/api/reset` | Alle Presetfader auf 0, Programmer leer, Movinglight sofort in die Mitte (Pan/Tilt 50 %, Zoom bleibt), ML-Dimmer auf 0. |
+
+```bash
+curl -X POST http://<Server-IP>:8080/api/reset
+# über HTTPS (lokale CA, daher -k):
+curl -k -X POST https://<LIGHT_HOST>/api/reset
+```
+
+Antwort `200 {"ok":true}`. Ein `GET` wird mit `405` abgelehnt, damit kein
+Browser-Vorladen das Licht ausmacht.
+
+- **Vorglühen bleibt aktiv:** Kanäle mit Mindestwert gehen auf ihren
+  Vorglühwert, nicht auf 0 — auch der ML-Dimmer.
+- Grandmaster und Blackout bleiben, wie sie sind.
+- Alle Tablets zeigen den neuen Stand sofort.
 
 ---
 

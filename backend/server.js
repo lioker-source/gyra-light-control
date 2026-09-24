@@ -12,6 +12,7 @@
 
 require('dotenv').config();
 const WebSocket = require('ws');
+const http = require('http');
 const mysql = require('mysql2/promise');
 const dgram = require('dgram');
 const crypto = require('crypto');
@@ -978,11 +979,19 @@ function sendDmx(universes) {
  * ------------------------------------------------------*/
 
 function setupWebSocketServer() {
-  wss = new WebSocket.Server({ port: WS_PORT });
+  // HTTP und WebSocket teilen sich den Port: der HTTP-Server nimmt die
+  // REST-Aufrufe an und reicht die Upgrades an den WebSocket-Server weiter.
+  const server = http.createServer(handleHttp);
+  wss = new WebSocket.Server({ server });
+  server.listen(WS_PORT);
   console.log(`[WS] Server läuft auf ws://0.0.0.0:${WS_PORT}`);
+  console.log(`[REST] POST http://0.0.0.0:${WS_PORT}/api/reset`);
   console.log(`[WS] Heartbeat alle ${WS_PING_INTERVAL_MS} ms.`);
 
-  // Server-weite Fehler
+  // Server-weite Fehler (z.B. Port belegt kommt jetzt vom HTTP-Server)
+  server.on('error', (err) => {
+    console.error('[HTTP] Server-Fehler:', err);
+  });
   wss.on('error', (err) => {
     console.error('[WS] Server-Fehler:', err);
   });
@@ -1053,6 +1062,29 @@ function setupWebSocketServer() {
     // (SIGHUP oder system.reload, B3.3).
     sendHandshake(ws);
   });
+}
+
+/* --------------------------------------------------------
+ * REST-API (README: REST-API)
+ * Bewusst ohne Authentifizierung - im Lichtnetz sind nur bekannte Geraete.
+ * ------------------------------------------------------*/
+
+function handleHttp(req, res) {
+  const url = (req.url || '').split('?')[0];
+  const antwort = (code, obj) => {
+    res.writeHead(code, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(obj));
+  };
+
+  if (url !== '/api/reset') return antwort(404, { ok: false, error: 'not_found' });
+  // Nur POST: ein GET wuerde schon beim Vorladen im Browser das Licht ausmachen.
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return antwort(405, { ok: false, error: 'method_not_allowed' });
+  }
+
+  resetAll(`REST ${req.socket.remoteAddress}`);
+  antwort(200, { ok: true });
 }
 
 function broadcast(obj) {
@@ -1157,6 +1189,27 @@ function startPositionFade(targetPan, targetTilt, targetZoom, fadeSec) {
     t: 0
   };
   // Dimmer bleibt bewusst unberührt (Show-Situation).
+}
+
+/**
+ * Grundzustand: alle Presetfader auf 0, Programmer leer, Movinglight sofort
+ * in die Mitte und Dimmer runter. Grandmaster und Blackout bleiben stehen.
+ * Das Vorgluehen braucht keine Sonderbehandlung: minNorm() greift in der
+ * Ausgabe nach allem anderen, die Lampen bleiben also warm.
+ */
+function resetAll(origin) {
+  presetFaderLevels.clear();
+  programmerValues.clear();
+  programmerPosition = null;
+
+  mlPanSpeed = 0;
+  mlTiltSpeed = 0;
+  mlMoveSensitivity = null;
+  startPositionFade(0.5, 0.5, mlState.zoom, 0);
+  mlDimmerTarget = 0;
+
+  markStateDirty(null);
+  console.log(`[RESET] Grundzustand hergestellt (${origin}).`);
 }
 
 /**

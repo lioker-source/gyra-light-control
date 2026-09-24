@@ -40,6 +40,11 @@
 		reverse_proxy backend:8080
 	}
 
+	# REST-API des Lichtservers (README: REST-API).
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+
 	# Alles andere ist das PHP-Frontend.
 	handle {
 		reverse_proxy frontend:80
