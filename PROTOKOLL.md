@@ -337,8 +337,9 @@ Programmer deshalb unbedienbar und wurden dort ausgeblendet.
 **`min_value` ist eine Untergrenze fürs Vorglühen** (DMX 0..255, `null` =
 aus). Manche Glühlampen ziehen kalt einen so hohen Einschaltstrom, dass die
 Sicherung fällt; ein kleiner Grundwert hält den Faden warm. Die Untergrenze
-greift als letzter Schritt der Mischkette, **nach** Grandmaster und Blackout
-(§6) — sonst wäre der Faden gerade nach einem Blackout kalt. Gespeicherte
+greift als letzter Schritt der Mischkette, **nach** dem Grandmaster (§6) —
+bei Grandmaster 0 bleibt der Faden also warm. Ein **Blackout** schaltet das
+Vorglühen dagegen mit ab: Intensitäten gehen dann komplett auf 0. Gespeicherte
 Presets enthalten sie nicht, sie steckt nur in der Ausgabe.
 
 ### 4.2 `library` — Presets und Positionen
@@ -456,7 +457,7 @@ wert_final = is_intensity ? wert * grandmaster * (blackout ? 0 : 1)
 ```
 
 `fixed_value`-Kanäle bleiben in jedem Fall unangetastet. Danach kommt nur
-noch die Vorglüh-Untergrenze (§4.1):
+noch die Vorglüh-Untergrenze (§4.1), außer bei Blackout:
 
 ```
 wert_aus = max(wert_final, min_value / 255)

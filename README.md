@@ -666,7 +666,8 @@ Servercode verdrahtet.
 Glühlampen mit hohem Einschaltstrom lassen sich vorglühen: Im Patch das
 Fixture öffnen und unter **Vorglühen · Minimalwert** je Intensitätskanal
 einen Prozentwert setzen. Der Server gibt den Kanal nie darunter aus, auch
-nicht bei Blackout oder Grandmaster 0. Gespeichert wird der DMX-Wert in
+nicht bei Grandmaster 0. Nur der Blackout schaltet das Vorglühen mit ab —
+dann gehen die Lampen komplett aus. Gespeichert wird der DMX-Wert in
 `dmx_channels.min_value` (0..255, `NULL` = aus).
 
 Bestehende Datenbanken brauchen dafür einmal die Migration

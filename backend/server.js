@@ -461,12 +461,13 @@ function applyMaster(valueNorm, ch) {
 
 /**
  * Vorgluehen: Untergrenze eines Kanals als 0..1 (dmx_channels.min_value).
- * Gilt nach Grandmaster und Blackout - ein Blackout soll die Lampe
- * dunkel, aber nicht kalt machen, sonst loest beim Wiedereinschalten der
- * Einschaltstrom die Sicherung aus.
+ * Gilt nach dem Grandmaster - bei Grandmaster 0 bleibt der Faden warm.
+ * Ein Blackout dagegen schaltet Intensitaeten komplett aus, auch das
+ * Vorgluehen: dann soll wirklich kein Licht mehr kommen.
  */
 function minNorm(ch) {
   if (!ch || ch.min_value == null) return 0;
+  if (blackout && ch.is_intensity) return 0;
   return clamp(ch.min_value / 255, 0, 1);
 }
 
@@ -512,7 +513,8 @@ function mixSceneChannelsHTP() {
     // Grandmaster/Blackout ganz am Ende der Mischkette, und nur auf
     // Intensitäten (PROTOKOLL.md §6). Pan/Tilt/Zoom/Control bleiben
     // unangetastet – sonst würde ein Blackout den Kopf verstellen.
-    // Danach die Untergrenze fuers Vorgluehen, bewusst hinter dem Master.
+    // Danach die Untergrenze fuers Vorgluehen, bewusst hinter dem Master
+    // (ausser bei Blackout, siehe minNorm).
     const out = Math.max(applyMaster(maxVal, ch), minNorm(ch));
     outputChannels.set(ch.id, clamp(out, 0, 1));
   }
@@ -1195,7 +1197,8 @@ function startPositionFade(targetPan, targetTilt, targetZoom, fadeSec) {
  * Grundzustand: alle Presetfader auf 0, Programmer leer, Movinglight sofort
  * in die Mitte und Dimmer runter. Grandmaster und Blackout bleiben stehen.
  * Das Vorgluehen braucht keine Sonderbehandlung: minNorm() greift in der
- * Ausgabe nach allem anderen, die Lampen bleiben also warm.
+ * Ausgabe nach allem anderen, die Lampen bleiben also warm (ausser bei
+ * Blackout).
  */
 function resetAll(origin) {
   presetFaderLevels.clear();

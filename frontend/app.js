@@ -1546,7 +1546,7 @@ function vorgluehFeld(f) {
   const feld = el('div', 'field vorgl');
   feld.appendChild(el('div', 'cap', 'VORGLÜHEN · MINIMALWERT'));
   feld.appendChild(el('div', 'foot',
-    'Der Kanal fällt nie unter diesen Wert, auch nicht bei Blackout. Dämpft den Einschaltstrom kalter Glühlampen.'));
+    'Der Kanal fällt nie unter diesen Wert, auch nicht bei Grandmaster 0. Nur Blackout schaltet ganz aus. Dämpft den Einschaltstrom kalter Glühlampen.'));
 
   const liste = el('div', 'vgl-liste');
   const labelVon = (c) => c.name.startsWith(f.name + ' ') ? c.name.slice(f.name.length + 1) : c.name;
