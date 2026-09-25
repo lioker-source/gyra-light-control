@@ -177,6 +177,11 @@ function handle(msg) {
       $('#conn-label').textContent = 'Verbunden';
       helloAt = new Date();
       serverProtocol = msg.protocol;
+      // Neue Verbindung, neue Zaehlung: nach einem Server-Neustart beginnt
+      // seq wieder bei 1. Ohne das Zuruecksetzen verwarf der Client jeden
+      // Zustand, bis der alte Zaehlerstand wieder erreicht war - die
+      // Oberflaeche blieb auf dem alten Stand stehen (z.B. Blackout an).
+      lastSeq = -1;
       break;
 
     case 'patch':

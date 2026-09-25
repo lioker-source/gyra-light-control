@@ -378,6 +378,8 @@ zusätzlich sofort nach jeder Zustandsänderung.
 ```
 
 - `seq` zählt hoch; ältere Pakete verwirft der Client.
+  Die Zählung gilt je Verbindung: nach `hello` setzt der Client seinen
+  Vergleichswert zurück, weil ein neu gestarteter Server wieder bei 1 beginnt.
 - `origin` ist die `client_id`, die die Änderung ausgelöst hat (oder `null` bei
   periodischen Sendungen).
 - `ml.fading` sagt, ob gerade eine Positionsfahrt läuft — das Frontend kann
